@@ -11,7 +11,7 @@ from .....checkout.fetch import (
     fetch_checkout_lines,
     get_delivery_method_info,
 )
-from .....checkout.utils import PRIVATE_META_APP_SHIPPING_ID, invalidate_checkout_prices
+from .....checkout.utils import PRIVATE_META_APP_SHIPPING_ID, invalidate_checkout
 from .....plugins.base_plugin import ExcludedShippingMethod
 from .....plugins.manager import get_plugins_manager
 from .....shipping import models as shipping_models
@@ -21,7 +21,7 @@ from ....tests.utils import get_graphql_content
 
 MUTATION_UPDATE_SHIPPING_METHOD = """
     mutation checkoutShippingMethodUpdate(
-            $id: ID, $shippingMethodId: ID!){
+            $id: ID, $shippingMethodId: ID){
         checkoutShippingMethodUpdate(
             id: $id, shippingMethodId: $shippingMethodId) {
             errors {
@@ -38,18 +38,18 @@ MUTATION_UPDATE_SHIPPING_METHOD = """
 
 
 # TODO: Deprecated
-@pytest.mark.parametrize("is_valid_shipping_method", (True, False))
+@pytest.mark.parametrize("is_valid_shipping_method", [True, False])
 @patch(
     "saleor.graphql.checkout.mutations.checkout_shipping_method_update."
     "clean_delivery_method"
 )
 @patch(
     "saleor.graphql.checkout.mutations.checkout_shipping_method_update."
-    "invalidate_checkout_prices",
-    wraps=invalidate_checkout_prices,
+    "invalidate_checkout",
+    wraps=invalidate_checkout,
 )
 def test_checkout_shipping_method_update(
-    mocked_invalidate_checkout_prices,
+    mocked_invalidate_checkout,
     mock_clean_shipping,
     staff_api_client,
     shipping_method,
@@ -70,9 +70,9 @@ def test_checkout_shipping_method_update(
     data = get_graphql_content(response)["data"]["checkoutShippingMethodUpdate"]
     checkout.refresh_from_db()
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     checkout_info.delivery_method_info = get_delivery_method_info(
         convert_to_shipping_method_data(
             old_shipping_method, old_shipping_method.channel_listings.first()
@@ -92,7 +92,7 @@ def test_checkout_shipping_method_update(
         assert data["checkout"]["token"] == str(checkout.token)
         assert checkout.shipping_method == shipping_method
         assert checkout.last_change != previous_last_change
-        assert mocked_invalidate_checkout_prices.call_count == 1
+        assert mocked_invalidate_checkout.call_count == 1
     else:
         assert len(errors) == 1
         assert errors[0]["field"] == "shippingMethod"
@@ -103,7 +103,7 @@ def test_checkout_shipping_method_update(
         assert checkout.last_change == previous_last_change
 
 
-@mock.patch("saleor.plugins.webhook.tasks.send_webhook_request_sync")
+@mock.patch("saleor.webhook.transport.synchronous.transport.send_webhook_request_sync")
 def test_checkout_shipping_method_update_external_shipping_method(
     mock_send_request,
     staff_api_client,
@@ -144,10 +144,10 @@ def test_checkout_shipping_method_update_external_shipping_method(
     errors = data["errors"]
     assert not errors
     assert data["checkout"]["token"] == str(checkout_with_item.token)
-    assert PRIVATE_META_APP_SHIPPING_ID in checkout.private_metadata
+    assert PRIVATE_META_APP_SHIPPING_ID in checkout.metadata_storage.private_metadata
 
 
-@mock.patch("saleor.plugins.webhook.tasks.send_webhook_request_sync")
+@mock.patch("saleor.webhook.transport.synchronous.transport.send_webhook_request_sync")
 def test_checkout_shipping_method_update_external_shipping_method_with_tax_plugin(
     mock_send_request,
     staff_api_client,
@@ -456,3 +456,29 @@ def test_checkout_update_shipping_method_with_digital(
     # Ensure the shipping method was unchanged
     checkout.refresh_from_db(fields=["shipping_method"])
     assert checkout.shipping_method is None
+
+
+def test_with_active_problems_flow(
+    api_client,
+    checkout_with_problems,
+    shipping_method,
+):
+    # given
+    channel = checkout_with_problems.channel
+    channel.use_legacy_error_flow_for_checkout = False
+    channel.save(update_fields=["use_legacy_error_flow_for_checkout"])
+
+    method_id = graphene.Node.to_global_id("ShippingMethod", shipping_method.id)
+
+    # when
+    response = api_client.post_graphql(
+        MUTATION_UPDATE_SHIPPING_METHOD,
+        {
+            "id": to_global_id_or_none(checkout_with_problems),
+            "shippingMethodId": method_id,
+        },
+    )
+    content = get_graphql_content(response)
+
+    # then
+    assert not content["data"]["checkoutShippingMethodUpdate"]["errors"]

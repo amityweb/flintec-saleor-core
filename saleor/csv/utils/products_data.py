@@ -1,12 +1,12 @@
-from collections import defaultdict, namedtuple
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional, Union
 from urllib.parse import urljoin
 
 import graphene
 from django.conf import settings
-from django.db.models import Case, CharField
+from django.db.models import Case, CharField, When
 from django.db.models import Value as V
-from django.db.models import When
 from django.db.models.functions import Cast, Concat
 
 from ...attribute import AttributeInputType
@@ -20,11 +20,11 @@ if TYPE_CHECKING:
 
 def get_products_data(
     queryset: "QuerySet",
-    export_fields: Set[str],
-    attribute_ids: Optional[List[int]],
-    warehouse_ids: Optional[List[int]],
-    channel_ids: Optional[List[int]],
-) -> List[Dict[str, Union[str, bool]]]:
+    export_fields: set[str],
+    attribute_ids: Optional[list[str]],
+    warehouse_ids: Optional[list[str]],
+    channel_ids: Optional[list[str]],
+) -> list[dict[str, Union[str, bool]]]:
     """Create data list of products and their variants with fields values.
 
     It return list with product and variant data which can be used as import to
@@ -78,8 +78,8 @@ def get_products_data(
         else:
             variant_pk = product_data.pop("variants__id")
 
-        product_relations_data: Dict[str, str] = products_relations_data.get(pk, {})
-        variant_relations_data: Dict[str, str] = variants_relations_data.get(
+        product_relations_data: dict[str, str] = products_relations_data.get(pk, {})
+        variant_relations_data: dict[str, str] = variants_relations_data.get(
             variant_pk, {}
         )
 
@@ -98,10 +98,10 @@ def get_products_data(
 
 def get_products_relations_data(
     queryset: "QuerySet",
-    export_fields: Set[str],
-    attribute_ids: Optional[List[int]],
-    channel_ids: Optional[List[int]],
-) -> Dict[int, Dict[str, str]]:
+    export_fields: set[str],
+    attribute_ids: Optional[list[str]],
+    channel_ids: Optional[list[str]],
+) -> dict[int, dict[str, str]]:
     """Get data about product relations fields.
 
     If any many to many fields are in export_fields or some attribute_ids exists then
@@ -122,17 +122,17 @@ def get_products_relations_data(
 
 def prepare_products_relations_data(
     queryset: "QuerySet",
-    fields: Set[str],
-    attribute_ids: Optional[List[int]],
-    channel_ids: Optional[List[int]],
-) -> Dict[int, Dict[str, str]]:
+    fields: set[str],
+    attribute_ids: Optional[list[str]],
+    channel_ids: Optional[list[str]],
+) -> dict[int, dict[str, str]]:
     """Prepare data about products relation fields for given queryset.
 
     It return dict where key is a product pk, value is a dict with relation fields data.
     """
     attribute_fields = ProductExportFields.PRODUCT_ATTRIBUTE_FIELDS
     channel_fields = ProductExportFields.PRODUCT_CHANNEL_LISTING_FIELDS.copy()
-    result_data: Dict[int, dict] = defaultdict(dict)
+    result_data: dict[int, dict] = defaultdict(dict)
 
     fields.add("pk")
     if attribute_ids:
@@ -165,7 +165,7 @@ def prepare_products_relations_data(
             channel_fields,
         )
 
-    result: Dict[int, Dict[str, str]] = {
+    result: dict[int, dict[str, str]] = {
         pk: {
             header: ", ".join(sorted(values)) if isinstance(values, set) else values
             for header, values in data.items()
@@ -177,11 +177,11 @@ def prepare_products_relations_data(
 
 def get_variants_relations_data(
     queryset: "QuerySet",
-    export_fields: Set[str],
-    attribute_ids: Optional[List[int]],
-    warehouse_ids: Optional[List[int]],
-    channel_ids: Optional[List[int]],
-) -> Dict[int, Dict[str, str]]:
+    export_fields: set[str],
+    attribute_ids: Optional[list[str]],
+    warehouse_ids: Optional[list[str]],
+    channel_ids: Optional[list[str]],
+) -> dict[int, dict[str, str]]:
     """Get data about variants relations fields.
 
     If any many to many fields are in export_fields or some attribute_ids or
@@ -202,11 +202,11 @@ def get_variants_relations_data(
 
 def prepare_variants_relations_data(
     queryset: "QuerySet",
-    fields: Set[str],
-    attribute_ids: Optional[List[int]],
-    warehouse_ids: Optional[List[int]],
-    channel_ids: Optional[List[int]],
-) -> Dict[int, Dict[str, str]]:
+    fields: set[str],
+    attribute_ids: Optional[list[str]],
+    warehouse_ids: Optional[list[str]],
+    channel_ids: Optional[list[str]],
+) -> dict[int, dict[str, str]]:
     """Prepare data about variants relation fields for given queryset.
 
     It return dict where key is a product pk, value is a dict with relation fields data.
@@ -215,7 +215,7 @@ def prepare_variants_relations_data(
     warehouse_fields = ProductExportFields.WAREHOUSE_FIELDS
     channel_fields = ProductExportFields.VARIANT_CHANNEL_LISTING_FIELDS.copy()
 
-    result_data: Dict[int, dict] = defaultdict(dict)
+    result_data: dict[int, dict] = defaultdict(dict)
     fields.add("variants__pk")
 
     if attribute_ids:
@@ -253,7 +253,7 @@ def prepare_variants_relations_data(
             pk, data, warehouse_ids, result_data, warehouse_fields
         )
 
-    result: Dict[int, Dict[str, str]] = {
+    result: dict[int, dict[str, str]] = {
         pk: {
             header: ", ".join(sorted(values)) if isinstance(values, set) else values
             for header, values in data.items()
@@ -264,8 +264,8 @@ def prepare_variants_relations_data(
 
 
 def add_collection_info_to_data(
-    pk: int, collection: str, result_data: Dict[int, dict]
-) -> Dict[int, dict]:
+    pk: int, collection: str, result_data: dict[int, dict]
+) -> dict[int, dict]:
     """Add collection info to product data.
 
     This functions adds info about collection to dict with product data.
@@ -277,15 +277,15 @@ def add_collection_info_to_data(
     if collection:
         header = "collections__slug"
         if header in result_data[pk]:
-            result_data[pk][header].add(collection)  # type: ignore
+            result_data[pk][header].add(collection)
         else:
             result_data[pk][header] = {collection}
     return result_data
 
 
 def add_image_uris_to_data(
-    pk: int, image: str, header: str, result_data: Dict[int, dict]
-) -> Dict[int, dict]:
+    pk: int, image: str, header: str, result_data: dict[int, dict]
+) -> dict[int, dict]:
     """Add absolute uri of given image path to product or variant data.
 
     This function based on given image path creates absolute uri and adds it to dict
@@ -301,49 +301,39 @@ def add_image_uris_to_data(
     return result_data
 
 
-AttributeData = namedtuple(
-    "AttributeData",
-    [
-        "slug",
-        "input_type",
-        "entity_type",
-        "unit",
-        "value_slug",
-        "value_name",
-        "value",
-        "file_url",
-        "rich_text",
-        "boolean",
-        "date_time",
-        "reference_page",
-        "reference_product",
-    ],
-)
+@dataclass
+class AttributeData:
+    slug: str
+    input_type: str
+    entity_type: Optional[str] = None
+    unit: Optional[str] = None
+    value_slug: Optional[str] = None
+    value_name: Optional[str] = None
+    value: Optional[str] = None
+    file_url: Optional[str] = None
+    rich_text: Optional[str] = None
+    boolean: Optional[str] = None
+    date_time: Optional[str] = None
+    reference_page: Optional[str] = None
+    reference_product: Optional[str] = None
+    reference_variant: Optional[str] = None
 
 
 def handle_attribute_data(
     pk: int,
     data: dict,
-    attribute_ids: Optional[List[int]],
-    result_data: Dict[int, dict],
+    attribute_ids: Optional[list[str]],
+    result_data: dict[int, dict],
     attribute_fields: dict,
     attribute_owner: str,
 ):
     attribute_pk = str(data.pop(attribute_fields["attribute_pk"], ""))
     attribute_data = AttributeData(
-        slug=data.pop(attribute_fields["slug"], None),
-        input_type=data.pop(attribute_fields["input_type"], None),
-        file_url=data.pop(attribute_fields["file_url"], None),
-        value_slug=data.pop(attribute_fields["value_slug"], None),
-        value_name=data.pop(attribute_fields["value_name"], None),
-        value=data.pop(attribute_fields["value"], None),
-        entity_type=data.pop(attribute_fields["entity_type"], None),
-        unit=data.pop(attribute_fields["unit"], None),
-        rich_text=data.pop(attribute_fields["rich_text"], None),
-        boolean=data.pop(attribute_fields["boolean"], None),
-        date_time=data.pop(attribute_fields["date_time"], None),
-        reference_page=data.pop(attribute_fields["value_reference_page"], None),
-        reference_product=data.pop(attribute_fields["value_reference_product"], None),
+        **{
+            field: data.pop(lookup, None)
+            for field, lookup in attribute_fields.items()
+            if field != "attribute_pk"
+        }
     )
 
     if attribute_ids and attribute_pk in attribute_ids:
@@ -357,8 +347,8 @@ def handle_attribute_data(
 def handle_channel_data(
     pk: int,
     data: dict,
-    channel_ids: Optional[List[int]],
-    result_data: Dict[int, dict],
+    channel_ids: Optional[list[str]],
+    result_data: dict[int, dict],
     pk_lookup: str,
     slug_lookup: str,
     fields: dict,
@@ -383,8 +373,8 @@ def handle_channel_data(
 def handle_warehouse_data(
     pk: int,
     data: dict,
-    warehouse_ids: Optional[List[int]],
-    result_data: Dict[int, dict],
+    warehouse_ids: Optional[list[str]],
+    result_data: dict[int, dict],
     warehouse_fields: dict,
 ):
     warehouse_data: dict = {}
@@ -405,8 +395,8 @@ def add_attribute_info_to_data(
     pk: int,
     attribute_data: AttributeData,
     attribute_owner: str,
-    result_data: Dict[int, dict],
-) -> Dict[int, dict]:
+    result_data: dict[int, dict],
+) -> dict[int, dict]:
     """Add info about attribute to variant or product data.
 
     This functions adds info about attribute to dict with variant or product data.
@@ -424,7 +414,7 @@ def add_attribute_info_to_data(
     value = prepare_attribute_value(attribute_data)
 
     if header in result_data[pk]:
-        result_data[pk][header].add(value)  # type: ignore
+        result_data[pk][header].add(value)
     else:
         result_data[pk][header] = {value}
 
@@ -434,53 +424,66 @@ def add_attribute_info_to_data(
 def prepare_attribute_value(attribute_data: AttributeData):
     """Prepare value of attribute value depending on the attribute input type."""
     input_type = attribute_data.input_type
-    if input_type == AttributeInputType.FILE:
-        file_url = attribute_data.file_url
-        value = (
-            build_absolute_uri(urljoin(settings.MEDIA_URL, file_url))
-            if file_url
-            else ""
-        )
-    elif input_type == AttributeInputType.REFERENCE and (
-        attribute_data.reference_page or attribute_data.reference_product
-    ):
-        if attribute_data.reference_page:
-            reference_id = attribute_data.reference_page
-        else:
-            reference_id = attribute_data.reference_product
-        value = f"{attribute_data.entity_type}_{reference_id}"
-    elif input_type == AttributeInputType.NUMERIC:
-        value = f"{attribute_data.value_name}"
-        if attribute_data.unit:
-            value += f" {attribute_data.unit}"
-    elif input_type == AttributeInputType.RICH_TEXT:
-        value = clean_editor_js(attribute_data.rich_text, to_string=True)
-    elif (
-        input_type == AttributeInputType.BOOLEAN and attribute_data.boolean is not None
-    ):
-        value = str(attribute_data.boolean)
-    elif input_type == AttributeInputType.DATE:
-        value = str(attribute_data.date_time.date())
-    elif input_type == AttributeInputType.DATE_TIME:
-        value = str(attribute_data.date_time)
-    elif input_type == AttributeInputType.SWATCH:
-        if attribute_data.file_url:
-            value = build_absolute_uri(
-                urljoin(settings.MEDIA_URL, attribute_data.file_url)
-            )
-        else:
-            value = attribute_data.value
-    else:
-        value = attribute_data.value_name or attribute_data.value_slug or ""
+    input_type_to_get_value_func = {
+        AttributeInputType.FILE: _get_file_value,
+        AttributeInputType.REFERENCE: _get_reference_value,
+        AttributeInputType.NUMERIC: (
+            lambda data: data.value_name
+            if not attribute_data.unit
+            else f"{data.value_name} {data.unit}"
+        ),
+        AttributeInputType.RICH_TEXT: (
+            lambda data: clean_editor_js(data.rich_text, to_string=True)
+        ),
+        AttributeInputType.BOOLEAN: (
+            lambda data: str(data.boolean) if data.boolean is not None else None
+        ),
+        AttributeInputType.DATE: lambda data: str(data.date_time.date()),
+        AttributeInputType.DATE_TIME: lambda data: str(data.date_time),
+        AttributeInputType.SWATCH: (
+            lambda data: _get_file_value(data) if data.file_url else data.value
+        ),
+    }
 
+    value = None
+    if value_func := input_type_to_get_value_func.get(input_type):
+        value = value_func(attribute_data)
+    if value is None:
+        value = attribute_data.value_name or attribute_data.value_slug or ""
     return value
+
+
+def _get_file_value(attribute_data):
+    file_url = attribute_data.file_url
+    value = (
+        build_absolute_uri(urljoin(settings.MEDIA_URL, file_url)) if file_url else ""
+    )
+    return value
+
+
+def _get_reference_value(attribute_data):
+    if not any(
+        [
+            attribute_data.reference_page,
+            attribute_data.reference_product,
+            attribute_data.reference_variant,
+        ]
+    ):
+        return None
+    if attribute_data.reference_page:
+        reference_id = attribute_data.reference_page
+    elif attribute_data.reference_product:
+        reference_id = attribute_data.reference_product
+    else:
+        reference_id = attribute_data.reference_variant
+    return f"{attribute_data.entity_type}_{reference_id}"
 
 
 def add_warehouse_info_to_data(
     pk: int,
-    warehouse_data: Dict[str, Union[Optional[str]]],
-    result_data: Dict[int, dict],
-) -> Dict[int, dict]:
+    warehouse_data: dict[str, Union[Optional[str]]],
+    result_data: dict[int, dict],
+) -> dict[int, dict]:
     """Add info about stock quantity to variant data.
 
     This functions adds info about stock quantity to dict with variant data.
@@ -498,10 +501,10 @@ def add_warehouse_info_to_data(
 
 def add_channel_info_to_data(
     pk: int,
-    channel_data: Dict[str, Union[Optional[str]]],
-    result_data: Dict[int, dict],
-    fields: List[str],
-) -> Dict[int, dict]:
+    channel_data: dict[str, Union[Optional[str]]],
+    result_data: dict[int, dict],
+    fields: list[str],
+) -> dict[int, dict]:
     """Add info about channel currency code, whether is published and publication date.
 
     This functions adds info about channel to dict with product data.

@@ -1,9 +1,10 @@
 import jwt
 import pytest
-from django.contrib.auth.models import Permission
 from freezegun import freeze_time
 from jwt import ExpiredSignatureError, InvalidSignatureError, InvalidTokenError
 
+from ...permission.enums import get_permissions_from_names
+from ...permission.models import Permission
 from ..auth_backend import JSONWebTokenBackend
 from ..jwt import (
     JWT_ACCESS_TYPE,
@@ -13,7 +14,6 @@ from ..jwt import (
     jwt_encode,
     jwt_user_payload,
 )
-from ..permissions import get_permissions_from_names
 
 
 @pytest.mark.parametrize("token_type", ["Basic", "Bearer"])
@@ -162,7 +162,7 @@ def test_user_doesnt_have_permissions_from_token(staff_user, app, rf):
 
 
 @pytest.mark.parametrize(
-    "user_permissions, app_permissions, expected_limited_permissions",
+    ("user_permissions", "app_permissions", "expected_limited_permissions"),
     [
         (
             ["manage_apps", "manage_checkouts"],

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 import graphene
 
@@ -10,11 +10,13 @@ from .types import Plugin
 
 
 def filter_plugin_status_in_channels(
-    plugins: List[Plugin], status_in_channels: dict
-) -> List[Plugin]:
+    plugins: list[Plugin], status_in_channels: dict, database_connection_name: str
+) -> list[Plugin]:
     is_active = status_in_channels["active"]
     channels_id = status_in_channels["channels"]
-    channels = get_nodes(channels_id, Channel)
+    channels = get_nodes(
+        channels_id, Channel, database_connection_name=database_connection_name
+    )
 
     filtered_plugins = []
     for plugin in plugins:
@@ -34,7 +36,7 @@ def filter_plugin_status_in_channels(
     return filtered_plugins
 
 
-def filter_plugin_by_type(plugins: List[Plugin], type):
+def filter_plugin_by_type(plugins: list[Plugin], type):
     if type == PluginConfigurationType.GLOBAL:
         plugins = [plugin for plugin in plugins if plugin.global_configuration]
     else:
@@ -42,7 +44,7 @@ def filter_plugin_by_type(plugins: List[Plugin], type):
     return plugins
 
 
-def filter_plugin_search(plugins: List[Plugin], value: Optional[str]) -> List[Plugin]:
+def filter_plugin_search(plugins: list[Plugin], value: Optional[str]) -> list[Plugin]:
     plugin_fields = ["name", "description"]
     if value is not None:
         return [

@@ -42,6 +42,10 @@ FRAGMENT_ORDER_DETAILS = (
         paymentStatus
         paymentStatusDisplay
         status
+        channel {
+          id
+          slug
+        }
         statusDisplay
         canFinalize
         isShippingRequired
@@ -92,6 +96,9 @@ FRAGMENT_ORDER_DETAILS = (
         total {
           ...Price
         }
+        totalCharged {
+          amount
+        }
         totalCaptured {
           amount
         }
@@ -101,6 +108,7 @@ FRAGMENT_ORDER_DETAILS = (
         shippingPrice {
           ...Price
         }
+        displayGrossPrices
       }
     """
 )

@@ -1,30 +1,40 @@
 import graphene
 from django.core.exceptions import ValidationError
 
-from ....core.permissions import OrderPermissions
-from ....core.taxes import zero_taxed_money
-from ....order import models
-from ....order.actions import order_shipping_updated
+from ....order import OrderStatus, models
 from ....order.error_codes import OrderErrorCode
-from ....order.utils import invalidate_order_prices
+from ....permission.enums import OrderPermissions
 from ....shipping import models as shipping_models
 from ....shipping.utils import convert_to_shipping_method_data
+from ...core import ResolveInfo
+from ...core.doc_category import DOC_CATEGORY_ORDERS
 from ...core.mutations import BaseMutation
-from ...core.types import OrderError
+from ...core.types import BaseInputObjectType, OrderError
+from ...plugins.dataloaders import get_plugin_manager_promise
 from ...shipping.types import ShippingMethod
 from ..types import Order
-from .utils import EditableOrderValidationMixin, clean_order_update_shipping
+from .utils import (
+    SHIPPING_METHOD_UPDATE_FIELDS,
+    EditableOrderValidationMixin,
+    ShippingMethodUpdateMixin,
+    clean_order_update_shipping,
+)
 
 
-class OrderUpdateShippingInput(graphene.InputObjectType):
+class OrderUpdateShippingInput(BaseInputObjectType):
     shipping_method = graphene.ID(
         description="ID of the selected shipping method,"
         " pass null to remove currently assigned shipping method.",
         name="shippingMethod",
     )
 
+    class Meta:
+        doc_category = DOC_CATEGORY_ORDERS
 
-class OrderUpdateShipping(EditableOrderValidationMixin, BaseMutation):
+
+class OrderUpdateShipping(
+    EditableOrderValidationMixin, ShippingMethodUpdateMixin, BaseMutation
+):
     order = graphene.Field(Order, description="Order with updated shipping method.")
 
     class Arguments:
@@ -44,116 +54,85 @@ class OrderUpdateShipping(EditableOrderValidationMixin, BaseMutation):
             " Requires shipping method ID to update, when null is passed "
             "then currently assigned shipping method is removed."
         )
+        doc_category = DOC_CATEGORY_ORDERS
         permissions = (OrderPermissions.MANAGE_ORDERS,)
         error_type_class = OrderError
         error_type_field = "order_errors"
 
     @classmethod
-    def perform_mutation(cls, _root, info, **data):
+    def perform_mutation(  # type: ignore[override]
+        cls, _root, info: ResolveInfo, /, *, id: str, input
+    ):
         order = cls.get_node_or_error(
             info,
-            data.get("id"),
+            id,
             only_type=Order,
             qs=models.Order.objects.prefetch_related(
                 "lines", "channel__shipping_method_listings"
             ),
         )
+        cls.check_channel_permissions(info, [order.channel_id])
         cls.validate_order(order)
 
-        data = data.get("input")
-
-        if "shipping_method" not in data:
+        if "shipping_method" not in input:
             raise ValidationError(
                 {
                     "shipping_method": ValidationError(
                         "Shipping method must be provided to perform mutation.",
-                        code=OrderErrorCode.SHIPPING_METHOD_REQUIRED,
+                        code=OrderErrorCode.SHIPPING_METHOD_REQUIRED.value,
                     )
                 }
             )
 
-        if not data.get("shipping_method"):
+        if not input.get("shipping_method"):
             if not order.is_draft() and order.is_shipping_required():
                 raise ValidationError(
                     {
                         "shipping_method": ValidationError(
                             "Shipping method is required for this order.",
-                            code=OrderErrorCode.SHIPPING_METHOD_REQUIRED,
+                            code=OrderErrorCode.SHIPPING_METHOD_REQUIRED.value,
                         )
                     }
                 )
 
             # Shipping method is detached only when null is passed in input.
-            if data["shipping_method"] == "":
+            if input["shipping_method"] == "":
                 raise ValidationError(
                     {
                         "shipping_method": ValidationError(
                             "Shipping method cannot be empty.",
-                            code=OrderErrorCode.SHIPPING_METHOD_REQUIRED,
+                            code=OrderErrorCode.SHIPPING_METHOD_REQUIRED.value,
                         )
                     }
                 )
 
-            order.shipping_method = None
-            order.shipping_price = zero_taxed_money(order.currency)
-            order.shipping_method_name = None
-            invalidate_order_prices(order)
-            order.save(
-                update_fields=[
-                    "currency",
-                    "shipping_method",
-                    "shipping_price_net_amount",
-                    "shipping_price_gross_amount",
-                    "shipping_method_name",
-                    "should_refresh_prices",
-                    "updated_at",
-                ]
-            )
+            cls.clear_shipping_method_from_order(order)
+            order.save(update_fields=SHIPPING_METHOD_UPDATE_FIELDS)
             return OrderUpdateShipping(order=order)
 
-        method = cls.get_node_or_error(
+        method_id: str = input["shipping_method"]
+        method: shipping_models.ShippingMethod = cls.get_node_or_error(
             info,
-            data["shipping_method"],
+            method_id,
             field="shipping_method",
             only_type=ShippingMethod,
             qs=shipping_models.ShippingMethod.objects.prefetch_related(
                 "postal_code_rules"
             ),
         )
-        shipping_channel_listing = (
-            shipping_models.ShippingMethodChannelListing.objects.filter(
-                shipping_method=method, channel=order.channel
-            ).first()
-        )
-        if not shipping_channel_listing:
-            raise ValidationError(
-                {
-                    "shipping_method": ValidationError(
-                        "Shipping method not available in the given channel.",
-                        code=OrderErrorCode.SHIPPING_METHOD_NOT_APPLICABLE.value,
-                    )
-                }
-            )
+        shipping_channel_listing = cls.validate_shipping_channel_listing(method, order)
 
         shipping_method_data = convert_to_shipping_method_data(
             method,
             shipping_channel_listing,
         )
-        clean_order_update_shipping(order, shipping_method_data, info.context.plugins)
+        manager = get_plugin_manager_promise(info.context).get()
+        if order.status != OrderStatus.DRAFT:
+            clean_order_update_shipping(order, shipping_method_data, manager)
+        cls.update_shipping_method(order, method, shipping_channel_listing)
+        cls._update_shipping_price(order, shipping_channel_listing)
 
-        order.shipping_method = method
-
-        order.shipping_method_name = method.name
-        invalidate_order_prices(order)
-        order.save(
-            update_fields=[
-                "currency",
-                "shipping_method",
-                "shipping_method_name",
-                "should_refresh_prices",
-                "updated_at",
-            ]
-        )
+        order.save(update_fields=SHIPPING_METHOD_UPDATE_FIELDS)
         # Post-process the results
-        order_shipping_updated(order, info.context.plugins)
+        cls.call_event(manager.order_updated, order)
         return OrderUpdateShipping(order=order)

@@ -1,10 +1,15 @@
-from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Optional
+
+from django.db.models import QuerySet
 
 from ...attribute import AttributeType
+from ...discount.models import PromotionRule
+from ...discount.utils import update_rule_variant_relation
+from ..models import ProductVariant
 
 if TYPE_CHECKING:
     from ...attribute.models import AssignedVariantAttribute, Attribute
-    from ..models import ProductVariant
 
 
 def generate_and_set_variant_name(
@@ -17,12 +22,10 @@ def generate_and_set_variant_name(
         assignment__variant_selection=True,
         assignment__attribute__type=AttributeType.PRODUCT_TYPE,
     )
-    for (
-        attribute_rel
-    ) in variant_selection_attributes.iterator():  # type: AssignedVariantAttribute
+    attribute_rel: AssignedVariantAttribute
+    for attribute_rel in variant_selection_attributes.iterator():
         values_qs = attribute_rel.values.all()
-        translated_values = [str(value.translated) for value in values_qs]
-        attributes_display.append(", ".join(translated_values))
+        attributes_display.append(", ".join([str(value) for value in values_qs]))
 
     name = " / ".join(sorted(attributes_display))
     if not name:
@@ -35,8 +38,8 @@ def generate_and_set_variant_name(
 
 
 def get_variant_selection_attributes(
-    attributes: Sequence[Tuple["Attribute", bool]]
-) -> List[Tuple["Attribute", bool]]:
+    attributes: Iterable[tuple["Attribute", bool]],
+) -> list[tuple["Attribute", bool]]:
     """Return attributes that can be used in variant selection.
 
     Attribute must be product attribute and attribute input type must be
@@ -47,3 +50,24 @@ def get_variant_selection_attributes(
         for attribute, variant_selection in attributes
         if variant_selection and attribute.type == AttributeType.PRODUCT_TYPE
     ]
+
+
+def fetch_variants_for_promotion_rules(
+    rules: QuerySet[PromotionRule],
+):
+    from ...graphql.discount.utils import get_variants_for_catalogue_predicate
+
+    PromotionRuleVariant = PromotionRule.variants.through
+    new_rules_variants = []
+    for rule in rules.iterator():
+        variants = get_variants_for_catalogue_predicate(rule.catalogue_predicate)
+        new_rules_variants.extend(
+            [
+                PromotionRuleVariant(
+                    promotionrule_id=rule.pk, productvariant_id=variant_id
+                )
+                for variant_id in set(variants.values_list("pk", flat=True))
+            ]
+        )
+    update_rule_variant_relation(rules, new_rules_variants)
+    return new_rules_variants

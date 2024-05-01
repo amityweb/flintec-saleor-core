@@ -1,25 +1,47 @@
 """Checkout-related utility functions."""
+<<<<<<< HEAD
 from decimal import Decimal
 from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple, Union, cast
+=======
+
+from collections.abc import Iterable
+from decimal import Decimal
+from typing import TYPE_CHECKING, Optional, Union, cast
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 
 import graphene
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import prefetch_related_objects
 from django.utils import timezone
 from prices import Money
 
 from ..account.models import User
+from ..core.db.connection import allow_writer
 from ..core.exceptions import ProductNotPublished
-from ..core.taxes import zero_money, zero_taxed_money
+from ..core.taxes import zero_taxed_money
 from ..core.utils.promo_code import (
     InvalidPromoCode,
     promo_code_is_gift_card,
     promo_code_is_voucher,
 )
-from ..discount import DiscountInfo, VoucherType
+from ..core.utils.translations import get_translation
+from ..core.weight import zero_weight
+from ..discount import DiscountType, VoucherType
 from ..discount.interface import VoucherInfo, fetch_voucher_info
-from ..discount.models import NotApplicable, Voucher
+from ..discount.models import (
+    CheckoutDiscount,
+    NotApplicable,
+    Voucher,
+    VoucherCode,
+)
 from ..discount.utils import (
+    create_checkout_discount_objects_for_order_promotions,
+    create_checkout_line_discount_objects_for_catalogue_promotions,
+    delete_gift_line,
     get_products_voucher_discount,
+    get_voucher_code_instance,
     validate_voucher_for_checkout,
 )
 from ..giftcard.utils import (
@@ -40,16 +62,12 @@ from .fetch import (
     update_checkout_info_delivery_method,
     update_checkout_info_shipping_address,
 )
-from .models import Checkout, CheckoutLine
+from .models import Checkout, CheckoutLine, CheckoutMetadata
 
 if TYPE_CHECKING:
-    # flake8: noqa
-    from decimal import Decimal
-
-    from prices import TaxedMoney
+    from measurement.measures import Weight
 
     from ..account.models import Address
-    from ..channel.models import Channel
     from ..order.models import Order
     from .fetch import CheckoutInfo, CheckoutLineInfo
 
@@ -57,20 +75,43 @@ if TYPE_CHECKING:
 PRIVATE_META_APP_SHIPPING_ID = "external_app_shipping_id"
 
 
-def invalidate_checkout_prices(
+def invalidate_checkout(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     manager: "PluginsManager",
-    discounts: Optional[Iterable["DiscountInfo"]] = None,
     *,
     recalculate_discount: bool = True,
-    save: bool
-) -> List[str]:
+    save: bool,
+) -> list[str]:
+    """Mark checkout as ready for prices recalculation."""
+    if recalculate_discount:
+        recalculate_checkout_discounts(checkout_info, lines, manager)
+
+    updated_fields = invalidate_checkout_prices(checkout_info, save=save)
+    return updated_fields
+
+
+def recalculate_checkout_discounts(
+    checkout_info: "CheckoutInfo",
+    lines: Iterable["CheckoutLineInfo"],
+    manager: "PluginsManager",
+):
+    """Recalculate checkout discounts.
+
+    Update line and checkout discounts from vouchers and promotions.
+    Create or remove gift line if needed.
+    """
+    create_checkout_line_discount_objects_for_catalogue_promotions(lines)
+    recalculate_checkout_discount(manager, checkout_info, lines)
+
+
+def invalidate_checkout_prices(
+    checkout_info: "CheckoutInfo",
+    *,
+    save: bool,
+) -> list[str]:
     """Mark checkout as ready for prices recalculation."""
     checkout = checkout_info.checkout
-
-    if recalculate_discount:
-        recalculate_checkout_discount(manager, checkout_info, lines, discounts or [])
 
     checkout.price_expiration = timezone.now()
     updated_fields = ["price_expiration", "last_change"]
@@ -82,8 +123,12 @@ def invalidate_checkout_prices(
 
 
 def get_user_checkout(
-    user: User, checkout_queryset=Checkout.objects.all()
+    user: User,
+    checkout_queryset=None,
+    database_connection_name: str = settings.DATABASE_CONNECTION_DEFAULT_NAME,
 ) -> Optional[Checkout]:
+    if not checkout_queryset:
+        checkout_queryset = Checkout.objects.using(database_connection_name).all()
     return checkout_queryset.filter(user=user, channel__is_active=True).first()
 
 
@@ -94,9 +139,9 @@ def check_variant_in_stock(
     quantity: int = 1,
     replace: bool = False,
     check_quantity: bool = True,
-    checkout_lines: Optional[List["CheckoutLine"]] = None,
+    checkout_lines: Optional[list["CheckoutLine"]] = None,
     check_reservations: bool = False,
-) -> Tuple[int, Optional[CheckoutLine]]:
+) -> tuple[int, Optional[CheckoutLine]]:
     """Check if a given variant is in stock and return the new quantity + line."""
     line = checkout.lines.filter(variant=variant).first()
     line_quantity = 0 if line is None else line.quantity
@@ -105,7 +150,7 @@ def check_variant_in_stock(
 
     if new_quantity < 0:
         raise ValueError(
-            "%r is not a valid quantity (results in %r)" % (quantity, new_quantity)
+            f"{quantity!r} is not a valid quantity (results in {new_quantity!r})"
         )
 
     if new_quantity > 0 and check_quantity:
@@ -170,7 +215,7 @@ def add_variant_to_checkout(
         if line is not None:
             line.delete()
     elif line is None:
-        checkout.lines.create(  # type: ignore
+        checkout.lines.create(
             variant=variant,
             quantity=new_quantity,
             currency=checkout.currency,
@@ -211,9 +256,9 @@ def add_variants_to_checkout(
     lines_by_id = {str(line.pk): line for line in checkout_lines}
     variants_map = {str(variant.pk): variant for variant in variants}
 
-    to_create: List[CheckoutLine] = []
-    to_update: List[CheckoutLine] = []
-    to_delete: List[CheckoutLine] = []
+    to_create: list[CheckoutLine] = []
+    to_update: list[CheckoutLine] = []
+    to_delete: list[CheckoutLine] = []
 
     for line_data in checkout_lines_data:
         line = lines_by_id.get(line_data.line_id) if line_data.line_id else None
@@ -227,7 +272,9 @@ def add_variants_to_checkout(
     if to_delete:
         CheckoutLine.objects.filter(pk__in=[line.pk for line in to_delete]).delete()
     if to_update:
-        CheckoutLine.objects.bulk_update(to_update, ["quantity", "price_override"])
+        CheckoutLine.objects.bulk_update(
+            to_update, ["quantity", "price_override", "metadata"]
+        )
     if to_create:
         CheckoutLine.objects.bulk_create(to_create)
 
@@ -235,13 +282,17 @@ def add_variants_to_checkout(
 
     if reservation_length and to_reserve:
         updated_lines_ids = [line.pk for line in to_reserve + to_delete]
+
+        # Validation for stock reservation should be performed on new and updated lines.
+        # For already existing lines only reserved_until should be updated.
+        lines_to_update_reservation_time = []
         for line in checkout_lines:
             if line.pk not in updated_lines_ids:
-                to_reserve.append(line)
-                variants.append(line.variant)
+                lines_to_update_reservation_time.append(line)
 
         reserve_stocks_and_preorders(
             to_reserve,
+            lines_to_update_reservation_time,
             variants,
             country_code,
             channel,
@@ -258,6 +309,10 @@ def _get_line_if_exist(line_data, lines_by_ids):
 
 
 def _append_line_to_update(to_update, to_delete, line_data, replace, line):
+    if line_data.metadata_list:
+        line.store_value_in_metadata(
+            {data.key: data.value for data in line_data.metadata_list}
+        )
     if line_data.quantity_to_update:
         quantity = line_data.quantity
         if quantity > 0:
@@ -282,15 +337,18 @@ def _append_line_to_delete(to_delete, line_data, line):
 def _append_line_to_create(to_create, checkout, variant, line_data, line):
     if line is None:
         if line_data.quantity > 0:
-            to_create.append(
-                CheckoutLine(
-                    checkout=checkout,
-                    variant=variant,
-                    quantity=line_data.quantity,
-                    currency=checkout.currency,
-                    price_override=line_data.custom_price,
-                )
+            checkout_line = CheckoutLine(
+                checkout=checkout,
+                variant=variant,
+                quantity=line_data.quantity,
+                currency=checkout.currency,
+                price_override=line_data.custom_price,
             )
+            if line_data.metadata_list:
+                checkout_line.store_value_in_metadata(
+                    {data.key: data.value for data in line_data.metadata_list}
+                )
+            to_create.append(checkout_line)
 
 
 def _check_new_checkout_address(checkout, address, address_type):
@@ -317,7 +375,7 @@ def _check_new_checkout_address(checkout, address, address_type):
     return has_address_changed, remove_old_address
 
 
-def change_billing_address_in_checkout(checkout, address) -> List[str]:
+def change_billing_address_in_checkout(checkout, address) -> list[str]:
     """Save billing address in checkout if changed.
 
     Remove previously saved address if not connected to any user.
@@ -340,7 +398,6 @@ def change_shipping_address_in_checkout(
     checkout_info: "CheckoutInfo",
     address: "Address",
     lines: Iterable["CheckoutLineInfo"],
-    discounts: Iterable[DiscountInfo],
     manager: "PluginsManager",
     shipping_channel_listings: Iterable["ShippingMethodChannelListing"],
 ):
@@ -356,11 +413,11 @@ def change_shipping_address_in_checkout(
     )
     updated_fields = []
     if changed:
-        if remove:
-            checkout.shipping_address.delete()  # type: ignore
+        if remove and checkout.shipping_address:
+            checkout.shipping_address.delete()
         checkout.shipping_address = address
         update_checkout_info_shipping_address(
-            checkout_info, address, lines, discounts, manager, shipping_channel_listings
+            checkout_info, address, lines, manager, shipping_channel_listings
         )
         updated_fields = ["shipping_address", "last_change"]
     return updated_fields
@@ -387,7 +444,7 @@ def _get_shipping_voucher_discount_for_checkout(
             msg = "This offer is not valid in your country."
             raise NotApplicable(msg)
 
-    shipping_price = base_calculations.base_checkout_delivery_price(
+    shipping_price = base_calculations.base_checkout_undiscounted_delivery_price(
         checkout_info=checkout_info, lines=lines
     )
     return voucher.get_discount_amount_for(shipping_price, checkout_info.channel)
@@ -396,7 +453,6 @@ def _get_shipping_voucher_discount_for_checkout(
 def get_discounted_lines(
     lines: Iterable["CheckoutLineInfo"], voucher_info: "VoucherInfo"
 ) -> Iterable["CheckoutLineInfo"]:
-
     discounted_lines = []
     if (
         voucher_info.product_pks
@@ -405,6 +461,8 @@ def get_discounted_lines(
         or voucher_info.variant_pks
     ):
         for line_info in lines:
+            if line_info.line.is_gift:
+                continue
             line_variant = line_info.variant
             line_product = line_info.product
             line_category = line_info.product.category
@@ -427,35 +485,33 @@ def get_discounted_lines(
 
 
 def get_prices_of_discounted_specific_product(
-    manager: PluginsManager,
-    checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     voucher: Voucher,
-    discounts: Optional[Iterable[DiscountInfo]] = None,
-) -> List[Money]:
+) -> list[Money]:
     """Get prices of variants belonging to the discounted specific products.
 
     Specific products are products, collections and categories.
     Product must be assigned directly to the discounted category, assigning
     product to child category won't work.
     """
-    line_prices = []
     voucher_info = fetch_voucher_info(voucher)
     discounted_lines: Iterable["CheckoutLineInfo"] = get_discounted_lines(
         lines, voucher_info
     )
-    discounts = discounts or []
-
-    for line_info in discounted_lines:
-        line = line_info.line
-        line_unit_price = base_calculations.calculate_base_line_unit_price(
-            line_info,
-            checkout_info.channel,
-            discounts,
-        )
-        line_prices.extend([line_unit_price] * line.quantity)
+    line_prices = get_base_lines_prices(discounted_lines)
 
     return line_prices
+
+
+def get_base_lines_prices(
+    lines: Iterable["CheckoutLineInfo"],
+):
+    """Get base total price of checkout lines without voucher discount applied."""
+    return [
+        line_info.channel_listing.discounted_price
+        for line_info in lines
+        for i in range(line_info.line.quantity)
+    ]
 
 
 def get_voucher_discount_for_checkout(
@@ -464,19 +520,20 @@ def get_voucher_discount_for_checkout(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     address: Optional["Address"],
-    discounts: Optional[Iterable[DiscountInfo]] = None,
 ) -> Money:
     """Calculate discount value depending on voucher and discount types.
 
     Raise NotApplicable if voucher of given type cannot be applied.
     """
-    validate_voucher_for_checkout(manager, voucher, checkout_info, lines, discounts)
+    validate_voucher_for_checkout(manager, voucher, checkout_info, lines)
     if voucher.type == VoucherType.ENTIRE_ORDER:
+        if voucher.apply_once_per_order:
+            prices = get_base_lines_prices(lines)
+            return voucher.get_discount_amount_for(min(prices), checkout_info.channel)
         subtotal = base_calculations.base_checkout_subtotal(
             lines,
             checkout_info.channel,
             checkout_info.checkout.currency,
-            discounts,
         )
         return voucher.get_discount_amount_for(subtotal, checkout_info.channel)
     if voucher.type == VoucherType.SHIPPING:
@@ -487,9 +544,23 @@ def get_voucher_discount_for_checkout(
             address,
         )
     if voucher.type == VoucherType.SPECIFIC_PRODUCT:
-        # The specific product voucher is propagated on specific line's prices
-        return zero_money(checkout_info.checkout.currency)
+        return _get_products_voucher_discount(checkout_info, lines, voucher)
     raise NotImplementedError("Unknown discount type")
+
+
+def _get_products_voucher_discount(
+    checkout_info: "CheckoutInfo",
+    lines: Iterable["CheckoutLineInfo"],
+    voucher,
+):
+    """Calculate products discount value for a voucher, depending on its type."""
+    prices = None
+    if voucher.type == VoucherType.SPECIFIC_PRODUCT:
+        prices = get_prices_of_discounted_specific_product(lines, voucher)
+    if not prices:
+        msg = "This offer is only valid for selected items."
+        raise NotApplicable(msg)
+    return get_products_voucher_discount(voucher, prices, checkout_info.channel)
 
 
 def get_voucher_for_checkout(
@@ -497,31 +568,60 @@ def get_voucher_for_checkout(
     channel_slug: str,
     with_lock: bool = False,
     with_prefetch: bool = False,
-) -> Optional[Voucher]:
+    database_connection_name: str = settings.DATABASE_CONNECTION_DEFAULT_NAME,
+) -> tuple[Optional[Voucher], Optional[VoucherCode]]:
     """Return voucher assigned to checkout."""
     if checkout.voucher_code is not None:
-        vouchers = Voucher.objects
-        vouchers = vouchers.active_in_channel(
-            date=timezone.now(), channel_slug=channel_slug
-        )
-        if with_prefetch:
-            vouchers.prefetch_related(
-                "products", "collections", "categories", "variants", "channel_listings"
-            )
         try:
-            qs = vouchers
-            voucher = qs.get(code=checkout.voucher_code)
-            if voucher and voucher.usage_limit is not None and with_lock:
-                voucher = vouchers.select_for_update().get(code=checkout.voucher_code)
-            return voucher
-        except Voucher.DoesNotExist:
-            return None
-    return None
+            code = VoucherCode.objects.using(database_connection_name).get(
+                code=checkout.voucher_code, is_active=True
+            )
+        except VoucherCode.DoesNotExist:
+            return None, None
+
+        # The voucher validation should be performed only when the voucher
+        # usage for this checkout hasn't been increased.
+        if checkout.is_voucher_usage_increased:
+            voucher = (
+                Voucher.objects.using(database_connection_name)
+                .filter(id=code.voucher_id)
+                .first()
+            )
+        else:
+            voucher = (
+                Voucher.objects.using(database_connection_name)
+                .active_in_channel(date=timezone.now(), channel_slug=channel_slug)
+                .filter(id=code.voucher_id)
+                .first()
+            )
+
+        if not voucher:
+            return None, None
+
+        if with_prefetch:
+            prefetch_related_objects(
+                [voucher],
+                "products",
+                "collections",
+                "categories",
+                "variants",
+                "channel_listings",
+            )
+
+        if voucher.usage_limit is not None and with_lock:
+            code = (
+                VoucherCode.objects.using(database_connection_name)
+                .select_for_update()
+                .get(code=checkout.voucher_code)
+            )
+
+        return voucher, code
+    return None, None
 
 
 def get_voucher_for_checkout_info(
     checkout_info: "CheckoutInfo", with_lock: bool = False, with_prefetch: bool = False
-) -> Optional[Voucher]:
+) -> tuple[Optional[Voucher], Optional[VoucherCode]]:
     """Return voucher with voucher code saved in checkout if active or None."""
     checkout = checkout_info.checkout
     return get_voucher_for_checkout(
@@ -537,7 +637,6 @@ def check_voucher_for_checkout(
     manager: PluginsManager,
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
-    discounts: Iterable[DiscountInfo],
 ):
     checkout = checkout_info.checkout
     address = checkout_info.shipping_address or checkout_info.billing_address
@@ -548,7 +647,6 @@ def check_voucher_for_checkout(
             checkout_info,
             lines,
             address,
-            discounts,
         )
         return discount
     except NotApplicable:
@@ -561,7 +659,6 @@ def recalculate_checkout_discount(
     manager: PluginsManager,
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
-    discounts: Iterable[DiscountInfo],
 ):
     """Recalculate `checkout.discount` based on the voucher.
 
@@ -575,14 +672,12 @@ def recalculate_checkout_discount(
             manager,
             checkout_info,
             lines,
-            discounts,
         )
         if discount:
             subtotal = base_calculations.base_checkout_subtotal(
                 lines,
                 checkout_info.channel,
                 checkout_info.checkout.currency,
-                discounts,
             )
             checkout.discount = (
                 min(discount, subtotal)
@@ -590,11 +685,15 @@ def recalculate_checkout_discount(
                 else discount
             )
             checkout.discount_name = voucher.name
+
+            language_code = checkout.language_code
+            translated_discount_name = get_translation(voucher, language_code).name
             checkout.translated_discount_name = (
-                voucher.translated.name
-                if voucher.translated.name != voucher.name
+                translated_discount_name
+                if translated_discount_name != voucher.name
                 else ""
             )
+
             checkout.save(
                 update_fields=[
                     "translated_discount_name",
@@ -607,13 +706,16 @@ def recalculate_checkout_discount(
     else:
         remove_voucher_from_checkout(checkout)
 
+    create_checkout_discount_objects_for_order_promotions(
+        checkout_info, lines, save=True
+    )
+
 
 def add_promo_code_to_checkout(
     manager: PluginsManager,
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     promo_code: str,
-    discounts: Optional[Iterable[DiscountInfo]] = None,
 ):
     """Add gift card or voucher data to checkout.
 
@@ -625,7 +727,6 @@ def add_promo_code_to_checkout(
             checkout_info,
             lines,
             promo_code,
-            discounts,
         )
     elif promo_code_is_gift_card(promo_code):
         user_email = cast(str, checkout_info.get_customer_email())
@@ -644,25 +745,15 @@ def add_voucher_code_to_checkout(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     voucher_code: str,
-    discounts: Optional[Iterable[DiscountInfo]] = None,
 ):
     """Add voucher data to checkout by code.
 
     Raise InvalidPromoCode() if voucher of given type cannot be applied.
     """
-    try:
-        voucher = Voucher.objects.active_in_channel(
-            date=timezone.now(), channel_slug=checkout_info.channel.slug
-        ).get(code=voucher_code)
-    except Voucher.DoesNotExist:
-        raise InvalidPromoCode()
+    code_instance = get_voucher_code_instance(voucher_code, checkout_info.channel.slug)
     try:
         add_voucher_to_checkout(
-            manager,
-            checkout_info,
-            lines,
-            voucher,
-            discounts,
+            manager, checkout_info, lines, code_instance.voucher, code_instance
         )
     except NotApplicable:
         raise ValidationError(
@@ -680,7 +771,7 @@ def add_voucher_to_checkout(
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
     voucher: Voucher,
-    discounts: Optional[Iterable[DiscountInfo]] = None,
+    voucher_code: VoucherCode,
 ):
     """Add voucher data to checkout.
 
@@ -694,24 +785,37 @@ def add_voucher_to_checkout(
         checkout_info,
         lines,
         address,
-        discounts,
     )
-    checkout.voucher_code = voucher.code
+    checkout.voucher_code = voucher_code.code
     checkout.discount_name = voucher.name
+
+    language_code = checkout.language_code
+    translated_discount_name = get_translation(voucher, language_code).name
     checkout.translated_discount_name = (
-        voucher.translated.name if voucher.translated.name != voucher.name else ""
+        translated_discount_name if translated_discount_name != voucher.name else ""
     )
+
     checkout.discount = discount
-    checkout.save(
-        update_fields=[
-            "voucher_code",
-            "discount_name",
-            "translated_discount_name",
-            "discount_amount",
-            "last_change",
-        ]
-    )
     checkout_info.voucher = voucher
+    checkout_info.voucher_code = voucher_code
+
+    # delete discounts from order promotions as cannot be mixed with vouchers
+    with transaction.atomic():
+        checkout.save(
+            update_fields=[
+                "voucher_code",
+                "discount_name",
+                "translated_discount_name",
+                "discount_amount",
+                "last_change",
+            ]
+        )
+        CheckoutDiscount.objects.filter(
+            checkout=checkout_info.checkout,
+            type=DiscountType.ORDER_PROMOTION,
+        ).delete()
+        # delete gift line if exists
+        delete_gift_line(checkout_info.checkout, lines)
 
 
 def remove_promo_code_from_checkout(
@@ -767,16 +871,20 @@ def get_valid_internal_shipping_methods_for_checkout(
     subtotal: "Money",
     shipping_channel_listings: Iterable["ShippingMethodChannelListing"],
     country_code: Optional[str] = None,
-) -> List[ShippingMethodData]:
+    database_connection_name: str = settings.DATABASE_CONNECTION_DEFAULT_NAME,
+) -> list[ShippingMethodData]:
     if not is_shipping_required(lines):
         return []
     if not checkout_info.shipping_address:
         return []
 
-    shipping_methods = ShippingMethod.objects.applicable_shipping_methods_for_instance(
+    shipping_methods = ShippingMethod.objects.using(
+        database_connection_name
+    ).applicable_shipping_methods_for_instance(
         checkout_info.checkout,
         channel_id=checkout_info.checkout.channel_id,
         price=subtotal,
+        shipping_address=checkout_info.shipping_address,
         country_code=country_code,
         lines=lines,
     )
@@ -785,11 +893,11 @@ def get_valid_internal_shipping_methods_for_checkout(
         listing.shipping_method_id: listing for listing in shipping_channel_listings
     }
 
-    internal_methods = []
+    internal_methods: list[ShippingMethodData] = []
     for method in shipping_methods:
         listing = channel_listings_map.get(method.pk)
-        shipping_method_data = convert_to_shipping_method_data(method, listing)
-        if shipping_method_data:
+        if listing:
+            shipping_method_data = convert_to_shipping_method_data(method, listing)
             internal_methods.append(shipping_method_data)
 
     return internal_methods
@@ -799,6 +907,7 @@ def get_valid_collection_points_for_checkout(
     lines: Iterable["CheckoutLineInfo"],
     channel_id: int,
     quantity_check: bool = True,
+    database_connection_name: str = settings.DATABASE_CONNECTION_DEFAULT_NAME,
 ):
     """Return a collection of `Warehouse`s that can be used as a collection point.
 
@@ -810,14 +919,16 @@ def get_valid_collection_points_for_checkout(
         return []
 
     line_ids = [line_info.line.id for line_info in lines]
-    lines = CheckoutLine.objects.filter(id__in=line_ids)
+    lines = CheckoutLine.objects.using(database_connection_name).filter(id__in=line_ids)
 
     return (
-        Warehouse.objects.applicable_for_click_and_collect(lines, channel_id)
+        Warehouse.objects.using(
+            database_connection_name
+        ).applicable_for_click_and_collect(lines, channel_id)
         if quantity_check
-        else Warehouse.objects.applicable_for_click_and_collect_no_quantity_check(
-            lines, channel_id
-        )
+        else Warehouse.objects.using(
+            database_connection_name
+        ).applicable_for_click_and_collect_no_quantity_check(lines, channel_id)
     )
 
 
@@ -831,17 +942,17 @@ def clear_delivery_method(checkout_info: "CheckoutInfo"):
         update_fields=[
             "shipping_method",
             "collection_point",
-            "private_metadata",
             "last_change",
         ]
     )
+    get_checkout_metadata(checkout).save()
 
 
 def is_fully_paid(
     manager: PluginsManager,
     checkout_info: "CheckoutInfo",
     lines: Iterable["CheckoutLineInfo"],
-    discounts: Iterable[DiscountInfo],
+    database_connection_name: str = settings.DATABASE_CONNECTION_DEFAULT_NAME,
 ):
     """Check if provided payment methods cover the checkout's total amount.
 
@@ -856,7 +967,7 @@ def is_fully_paid(
         checkout_info=checkout_info,
         lines=lines,
         address=address,
-        discounts=discounts,
+        database_connection_name=database_connection_name,
     )
     checkout_total = max(
         checkout_total, zero_taxed_money(checkout_total.currency)
@@ -870,9 +981,7 @@ def cancel_active_payments(checkout: Checkout):
 
 def is_shipping_required(lines: Iterable["CheckoutLineInfo"]):
     """Check if shipping is required for given checkout lines."""
-    return any(
-        line_info.product.product_type.is_shipping_required for line_info in lines
-    )
+    return any(line_info.product_type.is_shipping_required for line_info in lines)
 
 
 def validate_variants_in_checkout_lines(lines: Iterable["CheckoutLineInfo"]):
@@ -888,12 +997,12 @@ def validate_variants_in_checkout_lines(lines: Iterable["CheckoutLineInfo"]):
             graphene.Node.to_global_id("ProductVariant", pk)
             for pk in not_available_variants
         }
-        error_code = CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL
+        error_code = CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL.value
         raise ValidationError(
             {
                 "lines": ValidationError(
                     "Cannot add lines with unavailable variants.",
-                    code=error_code,  # type: ignore
+                    code=error_code,
                     params={"variants": not_available_variants_ids},
                 )
             }
@@ -901,14 +1010,55 @@ def validate_variants_in_checkout_lines(lines: Iterable["CheckoutLineInfo"]):
 
 
 def set_external_shipping_id(checkout: Checkout, app_shipping_id: str):
-    checkout.store_value_in_private_metadata(
+    metadata = get_or_create_checkout_metadata(checkout)
+    metadata.store_value_in_private_metadata(
         {PRIVATE_META_APP_SHIPPING_ID: app_shipping_id}
     )
 
 
 def get_external_shipping_id(container: Union["Checkout", "Order"]):
-    return container.get_value_from_private_metadata(PRIVATE_META_APP_SHIPPING_ID)
+    if type(container) == Checkout:
+        container = get_checkout_metadata(container)
+    return container.get_value_from_private_metadata(  # type:ignore
+        PRIVATE_META_APP_SHIPPING_ID
+    )
 
 
-def delete_external_shipping_id(checkout: Checkout):
-    checkout.delete_value_from_private_metadata(PRIVATE_META_APP_SHIPPING_ID)
+def delete_external_shipping_id(checkout: Checkout, save: bool = False):
+    metadata = get_or_create_checkout_metadata(checkout)
+    metadata.delete_value_from_private_metadata(PRIVATE_META_APP_SHIPPING_ID)
+    if save:
+        metadata.save(update_fields=["private_metadata"])
+
+
+@allow_writer()
+def get_or_create_checkout_metadata(checkout: "Checkout") -> CheckoutMetadata:
+    if hasattr(checkout, "metadata_storage"):
+        return checkout.metadata_storage
+    else:
+        return CheckoutMetadata.objects.create(checkout=checkout)
+
+
+def get_checkout_metadata(checkout: "Checkout"):
+    if hasattr(checkout, "metadata_storage"):
+        return checkout.metadata_storage
+    else:
+        return CheckoutMetadata(checkout=checkout)
+
+
+def calculate_checkout_weight(lines: Iterable["CheckoutLineInfo"]) -> "Weight":
+    weights = zero_weight()
+    for checkout_line_info in lines:
+        variant = checkout_line_info.variant
+        if variant:
+            line_weight = get_checkout_line_weight(checkout_line_info)
+            weights += line_weight * checkout_line_info.line.quantity
+    return weights
+
+
+def get_checkout_line_weight(line_info: "CheckoutLineInfo"):
+    return (
+        line_info.variant.weight
+        or line_info.product.weight
+        or line_info.product_type.weight
+    )

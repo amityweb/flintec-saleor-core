@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from django_countries import countries
 
@@ -7,6 +7,7 @@ from ..plugins.base_plugin import ExcludedShippingMethod
 from .interface import ShippingMethodData
 
 if TYPE_CHECKING:
+    from ..tax.models import TaxClass
     from .models import ShippingMethod, ShippingMethodChannelListing
 
 
@@ -30,14 +31,17 @@ def get_countries_without_shipping_zone():
 
 
 def convert_to_shipping_method_data(
-    shipping_method: "ShippingMethod", listing: Optional["ShippingMethodChannelListing"]
-) -> Optional["ShippingMethodData"]:
-    if not listing:
-        return None
-
+    shipping_method: "ShippingMethod",
+    listing: "ShippingMethodChannelListing",
+    tax_class: Optional["TaxClass"] = None,
+) -> "ShippingMethodData":
     price = listing.price
     minimum_order_price = listing.minimum_order_price
     maximum_order_price = listing.maximum_order_price
+
+    if not tax_class:
+        # Tax class should be passed as argument, this is a fallback.
+        tax_class = shipping_method.tax_class
 
     return ShippingMethodData(
         id=str(shipping_method.id),
@@ -51,14 +55,15 @@ def convert_to_shipping_method_data(
         metadata=shipping_method.metadata,
         private_metadata=shipping_method.private_metadata,
         price=price,
+        tax_class=tax_class,
         minimum_order_price=minimum_order_price,
         maximum_order_price=maximum_order_price,
     )
 
 
 def initialize_shipping_method_active_status(
-    shipping_methods: List["ShippingMethodData"],
-    excluded_methods: List["ExcludedShippingMethod"],
+    shipping_methods: list["ShippingMethodData"],
+    excluded_methods: list["ExcludedShippingMethod"],
 ):
     reason_map = {str(method.id): method.reason for method in excluded_methods}
     for instance in shipping_methods:

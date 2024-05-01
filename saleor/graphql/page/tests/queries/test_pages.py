@@ -22,7 +22,7 @@ QUERY_PAGES_WITH_FILTER = """
 
 
 @pytest.mark.parametrize(
-    "page_filter, count",
+    ("page_filter", "count"),
     [
         ({"search": "Page1"}, 2),
         ({"search": "about"}, 1),
@@ -76,6 +76,30 @@ def test_pages_query_with_filter_by_page_type(
     assert content["data"]["pages"]["totalCount"] == 2
 
 
+@pytest.mark.parametrize(
+    ("filter_by", "pages_count"),
+    [
+        ({"slugs": ["test-url-1"]}, 1),
+        ({"slugs": ["test-url-1", "test-url-2"]}, 2),
+        ({"slugs": []}, 2),
+    ],
+)
+def test_pages_with_filtering(filter_by, pages_count, staff_api_client, page_list):
+    # given
+    variables = {"filter": filter_by}
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_PAGES_WITH_FILTER,
+        variables,
+    )
+
+    # then
+    content = get_graphql_content(response)
+    pages_nodes = content["data"]["pages"]["edges"]
+    assert len(pages_nodes) == pages_count
+
+
 def test_pages_query_with_filter_by_ids(
     staff_api_client, permission_manage_pages, page_list, page_list_unpublished
 ):
@@ -106,7 +130,7 @@ QUERY_PAGE_WITH_SORT = """
 
 
 @pytest.mark.parametrize(
-    "page_sort, result_order",
+    ("page_sort", "result_order"),
     [
         ({"field": "TITLE", "direction": "ASC"}, ["About", "Page1", "Page2"]),
         ({"field": "TITLE", "direction": "DESC"}, ["Page2", "Page1", "About"]),
@@ -116,6 +140,8 @@ QUERY_PAGE_WITH_SORT = """
         ({"field": "VISIBILITY", "direction": "DESC"}, ["Page1", "About", "Page2"]),
         ({"field": "CREATION_DATE", "direction": "ASC"}, ["Page1", "About", "Page2"]),
         ({"field": "CREATION_DATE", "direction": "DESC"}, ["Page2", "About", "Page1"]),
+        ({"field": "CREATED_AT", "direction": "ASC"}, ["Page1", "About", "Page2"]),
+        ({"field": "CREATED_AT", "direction": "DESC"}, ["Page2", "About", "Page1"]),
         (
             {"field": "PUBLISHED_AT", "direction": "ASC"},
             ["Page1", "Page2", "About"],
@@ -197,8 +223,6 @@ PAGES_QUERY = """
 def test_query_pages_by_staff(
     staff_api_client, page_list, page, permission_manage_pages
 ):
-    """Ensure staff user with manage pages permission can query all pages,
-    including unpublished pages."""
     # given
     unpublished_page = page
     unpublished_page.is_published = False
@@ -218,8 +242,6 @@ def test_query_pages_by_staff(
 
 
 def test_query_pages_by_app(app_api_client, page_list, page, permission_manage_pages):
-    """Ensure app with manage pages permission can query all pages,
-    including unpublished pages."""
     # given
     unpublished_page = page
     unpublished_page.is_published = False
@@ -239,9 +261,6 @@ def test_query_pages_by_app(app_api_client, page_list, page, permission_manage_p
 
 
 def test_query_pages_by_staff_no_perm(staff_api_client, page_list, page):
-    """Ensure staff user without manage pages permission can query
-    only published pages."""
-
     # given
     unpublished_page = page
     unpublished_page.is_published = False

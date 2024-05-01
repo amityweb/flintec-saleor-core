@@ -36,7 +36,7 @@ EXPORT_GIFT_CARDS_MUTATION = """
 
 
 @pytest.mark.parametrize(
-    "input, called_data",
+    ("input", "called_data"),
     [
         (
             {
@@ -55,7 +55,7 @@ EXPORT_GIFT_CARDS_MUTATION = """
         ),
     ],
 )
-@patch("saleor.graphql.csv.mutations.export_gift_cards_task.delay")
+@patch("saleor.graphql.csv.mutations.export_gift_cards.export_gift_cards_task.delay")
 def test_export_gift_cards_mutation(
     export_gift_cards_mock,
     input,
@@ -66,16 +66,20 @@ def test_export_gift_cards_mutation(
     permission_manage_gift_card,
     permission_manage_apps,
 ):
+    # given
     query = EXPORT_GIFT_CARDS_MUTATION
     user = staff_api_client.user
     variables = {"input": input}
 
+    # when
     response = staff_api_client.post_graphql(
         query,
         variables=variables,
         permissions=[permission_manage_gift_card, permission_manage_apps],
     )
     content = get_graphql_content(response)
+
+    # then
     data = content["data"]["exportGiftCards"]
     export_file_data = data["exportFile"]
 
@@ -93,7 +97,7 @@ def test_export_gift_cards_mutation(
     ).exists()
 
 
-@patch("saleor.graphql.csv.mutations.export_gift_cards_task.delay")
+@patch("saleor.graphql.csv.mutations.export_gift_cards.export_gift_cards_task.delay")
 def test_export_gift_cards_mutation_ids_scope(
     export_gift_cards_mock,
     staff_api_client,
@@ -104,6 +108,7 @@ def test_export_gift_cards_mutation_ids_scope(
     permission_manage_apps,
     permission_manage_staff,
 ):
+    # given
     query = EXPORT_GIFT_CARDS_MUTATION
     user = staff_api_client.user
 
@@ -119,6 +124,7 @@ def test_export_gift_cards_mutation_ids_scope(
         }
     }
 
+    # when
     response = staff_api_client.post_graphql(
         query,
         variables=variables,
@@ -129,6 +135,8 @@ def test_export_gift_cards_mutation_ids_scope(
         ],
     )
     content = get_graphql_content(response)
+
+    # then
     data = content["data"]["exportGiftCards"]
     export_file_data = data["exportFile"]
 
@@ -151,7 +159,7 @@ def test_export_gift_cards_mutation_ids_scope(
     ).exists()
 
 
-@patch("saleor.graphql.csv.mutations.export_gift_cards_task.delay")
+@patch("saleor.graphql.csv.mutations.export_gift_cards.export_gift_cards_task.delay")
 def test_export_gift_cards_mutation_ids_scope_invalid_object_type(
     export_gift_cards_mock,
     staff_api_client,
@@ -162,6 +170,7 @@ def test_export_gift_cards_mutation_ids_scope_invalid_object_type(
     permission_manage_apps,
     permission_manage_staff,
 ):
+    # given
     query = EXPORT_GIFT_CARDS_MUTATION
     user = staff_api_client.user
 
@@ -177,6 +186,7 @@ def test_export_gift_cards_mutation_ids_scope_invalid_object_type(
         }
     }
 
+    # when
     response = staff_api_client.post_graphql(
         query,
         variables=variables,
@@ -187,6 +197,8 @@ def test_export_gift_cards_mutation_ids_scope_invalid_object_type(
         ],
     )
     content = get_graphql_content(response)
+
+    # then
     data = content["data"]["exportGiftCards"]
 
     errors = data["errors"]
@@ -203,7 +215,7 @@ def test_export_gift_cards_mutation_ids_scope_invalid_object_type(
 
 
 @pytest.mark.parametrize(
-    "input, error_field",
+    ("input", "error_field"),
     [
         (
             {
@@ -221,7 +233,7 @@ def test_export_gift_cards_mutation_ids_scope_invalid_object_type(
         ),
     ],
 )
-@patch("saleor.graphql.csv.mutations.export_gift_cards_task.delay")
+@patch("saleor.graphql.csv.mutations.export_gift_cards.export_gift_cards_task.delay")
 def test_export_gift_cards_mutation_failed(
     export_gift_cards_mock,
     input,
@@ -233,11 +245,13 @@ def test_export_gift_cards_mutation_failed(
     permission_manage_apps,
     permission_manage_staff,
 ):
+    # given
     query = EXPORT_GIFT_CARDS_MUTATION
     app = app_api_client.app
 
     variables = {"input": input}
 
+    # when
     response = app_api_client.post_graphql(
         query,
         variables=variables,
@@ -248,6 +262,8 @@ def test_export_gift_cards_mutation_failed(
         ],
     )
     content = get_graphql_content(response)
+
+    # then
     data = content["data"]["exportGiftCards"]
 
     errors = data["errors"]
@@ -286,7 +302,7 @@ EXPORT_GIFT_CARDS_MUTATION_BY_APP = """
 """
 
 
-@patch("saleor.graphql.csv.mutations.export_gift_cards_task.delay")
+@patch("saleor.graphql.csv.mutations.export_gift_cards.export_gift_cards_task.delay")
 def test_export_gift_cards_mutation_by_app(
     export_gift_cards_mock,
     app_api_client,
@@ -296,6 +312,7 @@ def test_export_gift_cards_mutation_by_app(
     permission_manage_apps,
     permission_manage_staff,
 ):
+    # given
     query = EXPORT_GIFT_CARDS_MUTATION_BY_APP
     app = app_api_client.app
     variables = {
@@ -305,6 +322,7 @@ def test_export_gift_cards_mutation_by_app(
         }
     }
 
+    # when
     response = app_api_client.post_graphql(
         query,
         variables=variables,
@@ -314,6 +332,8 @@ def test_export_gift_cards_mutation_by_app(
         ],
     )
     content = get_graphql_content(response)
+
+    # then
     data = content["data"]["exportGiftCards"]
     export_file_data = data["exportFile"]
 
@@ -328,3 +348,33 @@ def test_export_gift_cards_mutation_by_app(
     assert ExportEvent.objects.filter(
         user=None, app=app, type=ExportEvents.EXPORT_PENDING
     ).exists()
+
+
+@patch("saleor.plugins.manager.PluginsManager.gift_card_export_completed")
+def test_export_gift_cards_webhooks(
+    gift_card_export_completed_mock,
+    staff_api_client,
+    gift_card,
+    gift_card_expiry_date,
+    permission_manage_gift_card,
+    permission_manage_apps,
+    media_root,
+):
+    # given
+    query = EXPORT_GIFT_CARDS_MUTATION
+    input = {"scope": ExportScope.ALL.name, "fileType": FileTypeEnum.CSV.name}
+    variables = {"input": input}
+
+    # when
+    response = staff_api_client.post_graphql(
+        query,
+        variables=variables,
+        permissions=[permission_manage_gift_card, permission_manage_apps],
+    )
+    content = get_graphql_content(response)
+
+    # then
+    data = content["data"]["exportGiftCards"]
+    assert not data["errors"]
+
+    gift_card_export_completed_mock.assert_called_once()

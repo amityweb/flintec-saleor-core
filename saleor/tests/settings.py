@@ -1,7 +1,13 @@
+import os
 import re
-from typing import List, Pattern, Union
+from re import Pattern
+from typing import Union
 
 from django.utils.functional import SimpleLazyObject
+
+# Disable Jaeger tracing should be done before importing settings.
+# without this line pytest will start sending traces to Jaeger agent.
+os.environ["JAEGER_AGENT_HOST"] = ""
 
 from ..settings import *  # noqa
 
@@ -36,7 +42,7 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 COUNTRIES_ONLY = None
 
-MEDIA_ROOT = None
+MEDIA_ROOT = ""
 MEDIA_URL = "/media/"
 MAX_CHECKOUT_LINE_QUANTITY = 50
 
@@ -44,9 +50,12 @@ AUTH_PASSWORD_VALIDATORS = []
 
 PASSWORD_HASHERS = ["saleor.tests.dummy_password_hasher.DummyHasher"]
 
+OBSERVABILITY_ACTIVE = False
+OBSERVABILITY_REPORT_ALL_API_CALLS = False
+
 PLUGINS = []
 
-PATTERNS_IGNORED_IN_QUERY_CAPTURES: List[Union[Pattern, SimpleLazyObject]] = [
+PATTERNS_IGNORED_IN_QUERY_CAPTURES: list[Union[Pattern, SimpleLazyObject]] = [
     lazy_re_compile(r"^SET\s+")
 ]
 
@@ -85,3 +94,6 @@ FdkAmFzQhgLtnEtnb+eBI7DNOJEuPLD52Jwnq2pGnJ/LxlqjjWJ5FsQQVSoDHGfM
 -----END RSA PRIVATE KEY-----"""
 
 DATABASE_CONNECTION_REPLICA_NAME = DATABASE_CONNECTION_DEFAULT_NAME  # noqa: F405
+
+HTTP_IP_FILTER_ENABLED = False
+HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS = True

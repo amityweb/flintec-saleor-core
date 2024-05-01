@@ -55,14 +55,14 @@ QUERY_APPS_WITH_FILTER = """
 
 
 @pytest.mark.parametrize(
-    "app_filter, count",
-    (
+    ("app_filter", "count"),
+    [
         ({"search": "Sample"}, 1),
         ({"isActive": False}, 1),
         ({}, 2),
         ({"type": AppTypeEnum.THIRDPARTY.name}, 1),
         ({"type": AppTypeEnum.LOCAL.name}, 1),
-    ),
+    ],
 )
 def test_apps_query(
     staff_api_client,
@@ -143,6 +143,43 @@ def test_apps_with_extensions_query(
         assert assigned_permissions in returned_permission_codes
 
 
+def test_apps_query_no_permission(
+    staff_api_client, permission_manage_users, permission_manage_staff, app
+):
+    variables = {"filter": {}}
+    response = staff_api_client.post_graphql(
+        QUERY_APPS_WITH_FILTER, variables, permissions=[]
+    )
+    assert_no_permission(response)
+
+    response = staff_api_client.post_graphql(
+        QUERY_APPS_WITH_FILTER,
+        variables,
+        permissions=[permission_manage_users, permission_manage_staff],
+    )
+    assert_no_permission(response)
+
+
+def test_apps_query_marked_as_removed(
+    staff_api_client, permission_manage_apps, app, removed_app
+):
+    # given
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_APPS_WITH_FILTER,
+        {},
+        permissions=[permission_manage_apps],
+    )
+
+    # then
+    content = get_graphql_content(response)
+
+    apps_data = content["data"]["apps"]["edges"]
+    assert apps_data[0]["node"]["name"] == app.name
+    assert len(apps_data) == 1
+
+
 QUERY_APPS_WITH_SORT = """
     query ($sort_by: AppSortingInput!) {
         apps(first:5, sortBy: $sort_by) {
@@ -157,7 +194,7 @@ QUERY_APPS_WITH_SORT = """
 
 
 @pytest.mark.parametrize(
-    "apps_sort, result_order",
+    ("apps_sort", "result_order"),
     [
         ({"field": "NAME", "direction": "ASC"}, ["facebook", "google"]),
         ({"field": "NAME", "direction": "DESC"}, ["google", "facebook"]),
@@ -185,21 +222,30 @@ def test_query_apps_with_sort(
         assert apps[order]["node"]["name"] == account_name
 
 
-def test_apps_query_no_permission(
-    staff_api_client, permission_manage_users, permission_manage_staff, app
-):
-    variables = {"filter": {}}
-    response = staff_api_client.post_graphql(
-        QUERY_APPS_WITH_FILTER, variables, permissions=[]
-    )
-    assert_no_permission(response)
+QUERY_APPS = """
+query {
+    apps(first: 5){
+        edges {
+            node {
+                id
+            }
+        }
+    }
+}
+"""
 
-    response = staff_api_client.post_graphql(
-        QUERY_APPS_WITH_FILTER,
-        variables,
-        permissions=[permission_manage_users, permission_manage_staff],
-    )
-    assert_no_permission(response)
+
+def test_apps_query_pending_installation(staff_api_client, app):
+    # given
+    app.is_installed = False
+    app.save(update_fields=["is_installed"])
+
+    # when
+    response = staff_api_client.post_graphql(QUERY_APPS)
+    content = get_graphql_content(response)
+
+    # then
+    assert content["data"]["apps"]["edges"] == []
 
 
 QUERY_APPS_FOR_FEDERATION = """

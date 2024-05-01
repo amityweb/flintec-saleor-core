@@ -2,11 +2,11 @@
 
 import django.contrib.postgres.indexes
 from django.db import migrations, models
+
 import saleor.core.utils.json_serializer
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("checkout", "0048_alter_checkoutline_options"),
     ]

@@ -1,5 +1,6 @@
 from collections import defaultdict
-from typing import Dict, List, Tuple
+
+from django.conf import settings
 
 from ...plugins.base_plugin import BasePlugin, ConfigurationTypeField
 from .filters import (
@@ -38,11 +39,11 @@ def hide_private_configuration_fields(configuration, config_structure):
 
 def aggregate_plugins_configuration(
     manager,
-) -> Tuple[Dict[str, BasePlugin], Dict[str, List[BasePlugin]]]:
-    plugins_per_channel: Dict[str, List[BasePlugin]] = defaultdict(list)
-    global_plugins: Dict[str, BasePlugin] = {}
+) -> tuple[dict[str, BasePlugin], dict[str, list[BasePlugin]]]:
+    plugins_per_channel: dict[str, list[BasePlugin]] = defaultdict(list)
+    global_plugins: dict[str, BasePlugin] = {}
 
-    for plugin in manager.all_plugins:
+    for plugin in manager.get_all_plugins():
         hide_private_configuration_fields(plugin.configuration, plugin.CONFIG_STRUCTURE)
         if plugin.HIDDEN is True:
             continue
@@ -68,7 +69,12 @@ def resolve_plugin(id, manager):
     )
 
 
-def resolve_plugins(manager, sort_by=None, **kwargs):
+def resolve_plugins(
+    manager,
+    sort_by=None,
+    database_connection_name=settings.DATABASE_CONNECTION_DEFAULT_NAME,
+    **kwargs,
+):
     global_plugins, plugins_per_channel = aggregate_plugins_configuration(manager)
     plugin_filter = kwargs.get("filter", {})
     search_query = plugin_filter.get("search")
@@ -100,7 +106,9 @@ def resolve_plugins(manager, sort_by=None, **kwargs):
     )
 
     if filter_status_in_channel is not None:
-        plugins = filter_plugin_status_in_channels(plugins, filter_status_in_channel)
+        plugins = filter_plugin_status_in_channels(
+            plugins, filter_status_in_channel, database_connection_name
+        )
     if filter_plugin_type is not None:
         plugins = filter_plugin_by_type(plugins, filter_plugin_type)
     plugins = filter_plugin_search(plugins, search_query)

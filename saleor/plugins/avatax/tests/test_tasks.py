@@ -1,3 +1,4 @@
+import os
 from dataclasses import asdict
 from urllib.parse import urljoin
 
@@ -22,15 +23,15 @@ def test_api_post_request_task_sends_request(
     site_settings.company_address = address_usa
     site_settings.save()
     config = AvataxConfiguration(
-        username_or_account="",
-        password_or_license="",
-        use_sandbox=False,
+        username_or_account=os.environ.get("AVALARA_USERNAME", ""),
+        password_or_license=os.environ.get("AVALARA_PASSWORD", ""),
+        use_sandbox=True,
         from_street_address="Tęczowa 7",
         from_city="WROCŁAW",
         from_postal_code="53-601",
         from_country="PL",
     )
-    request_data = get_order_request_data(order_with_lines, config, tax_included=True)
+    request_data = get_order_request_data(order_with_lines, config)
 
     transaction_url = urljoin(
         get_api_url(config.use_sandbox), "transactions/createoradjust"
@@ -54,15 +55,15 @@ def test_api_post_request_task_creates_order_event(
     site_settings.save()
 
     config = AvataxConfiguration(
-        username_or_account="",
-        password_or_license="",
-        use_sandbox=False,
+        username_or_account=os.environ.get("AVALARA_USERNAME", ""),
+        password_or_license=os.environ.get("AVALARA_PASSWORD", ""),
+        use_sandbox=True,
         from_street_address="Tęczowa 7",
         from_city="WROCŁAW",
         from_postal_code="53-601",
         from_country="PL",
     )
-    request_data = get_order_request_data(order_with_lines, config, tax_included=True)
+    request_data = get_order_request_data(order_with_lines, config)
 
     transaction_url = urljoin(
         get_api_url(config.use_sandbox), "transactions/createoradjust"
@@ -95,7 +96,7 @@ def test_api_post_request_task_missing_response(
         from_postal_code="53-601",
         from_country="PL",
     )
-    request_data = get_order_request_data(order_with_lines, config, tax_included=True)
+    request_data = get_order_request_data(order_with_lines, config)
 
     transaction_url = urljoin(
         get_api_url(config.use_sandbox), "transactions/createoradjust"

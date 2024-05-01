@@ -6,10 +6,15 @@ import pytest
 from django.utils.functional import SimpleLazyObject
 from freezegun import freeze_time
 
+from .....attribute.tests.model_helpers import (
+    get_product_attribute_values,
+    get_product_attributes,
+)
 from .....attribute.utils import associate_attribute_values_to_instance
 from .....core.utils.json_serializer import CustomJsonEncoder
 from .....webhook.event_types import WebhookEventAsyncType
 from .....webhook.payloads import generate_meta, generate_requestor
+from ....tests.utils import get_graphql_content
 
 ATTRIBUTE_VALUE_DELETE_MUTATION = """
     mutation AttributeValueDelete($id: ID!) {
@@ -51,7 +56,8 @@ def test_delete_attribute_value_update_search_index_dirty_in_product(
     permission_manage_product_types_and_attributes,
 ):
     # given
-    value = product.attributes.all()[0].values.first()
+    first_attribute = get_product_attributes(product).first()
+    value = get_product_attribute_values(product, first_attribute).first()
     query = ATTRIBUTE_VALUE_DELETE_MUTATION
     node_id = graphene.Node.to_global_id("AttributeValue", value.id)
     variables = {"id": node_id}
@@ -63,8 +69,6 @@ def test_delete_attribute_value_update_search_index_dirty_in_product(
     product.refresh_from_db(fields=["search_index_dirty"])
 
     # then
-    with pytest.raises(value._meta.model.DoesNotExist):
-        value.refresh_from_db()
     assert product.search_index_dirty is True
 
 
@@ -116,6 +120,7 @@ def test_delete_attribute_value_trigger_webhooks(
         [any_webhook],
         color_attribute,
         SimpleLazyObject(lambda: staff_api_client.user),
+        allow_replica=False,
     )
 
     attribute_value_created_call = mock.call(
@@ -133,6 +138,7 @@ def test_delete_attribute_value_trigger_webhooks(
         [any_webhook],
         value,
         SimpleLazyObject(lambda: staff_api_client.user),
+        allow_replica=False,
     )
 
     # then
@@ -176,7 +182,7 @@ def test_delete_attribute_value_product_search_document_updated(
     product_type = product.product_type
     product_type.product_attributes.add(attribute)
 
-    associate_attribute_values_to_instance(product, attribute, value)
+    associate_attribute_values_to_instance(product, {attribute.pk: [value]})
 
     query = ATTRIBUTE_VALUE_DELETE_MUTATION
     node_id = graphene.Node.to_global_id("AttributeValue", value.id)
@@ -207,7 +213,7 @@ def test_delete_attribute_value_product_search_document_updated_variant_attribut
     product_type = product.product_type
     product_type.variant_attributes.add(attribute)
 
-    associate_attribute_values_to_instance(variant, attribute, value)
+    associate_attribute_values_to_instance(variant, {attribute.pk: [value]})
 
     query = ATTRIBUTE_VALUE_DELETE_MUTATION
     node_id = graphene.Node.to_global_id("AttributeValue", value.id)
@@ -221,3 +227,93 @@ def test_delete_attribute_value_product_search_document_updated_variant_attribut
     # then
     with pytest.raises(value._meta.model.DoesNotExist):
         value.refresh_from_db()
+
+
+ATTRIBUTE_VALUE_DELETE_BY_EXTERNAL_REFERENCE = """
+    mutation AttributeValueDelete($id: ID, $externalReference: String) {
+        attributeValueDelete(id: $id, externalReference: $externalReference) {
+            attributeValue {
+                id
+                externalReference
+            }
+            errors {
+                field
+                message
+            }
+        }
+    }
+"""
+
+
+def test_delete_attribute_value_by_external_reference(
+    staff_api_client,
+    color_attribute,
+    permission_manage_product_types_and_attributes,
+):
+    # given
+    value = color_attribute.values.get(name="Red")
+    query = ATTRIBUTE_VALUE_DELETE_BY_EXTERNAL_REFERENCE
+    ext_ref = "test-ext-ref"
+    value.external_reference = ext_ref
+    value.save(update_fields=["external_reference"])
+    variables = {"externalReference": ext_ref}
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_product_types_and_attributes]
+    )
+    content = get_graphql_content(response)
+
+    # then
+    data = content["data"]["attributeValueDelete"]
+    with pytest.raises(value._meta.model.DoesNotExist):
+        value.refresh_from_db()
+    assert data["attributeValue"]["externalReference"] == ext_ref
+    assert (
+        graphene.Node.to_global_id("AttributeValue", value.id)
+        == data["attributeValue"]["id"]
+    )
+
+
+def test_delete_attribute_value_by_both_id_and_external_reference(
+    staff_api_client,
+    color_attribute,
+    permission_manage_product_types_and_attributes,
+):
+    # given
+    query = ATTRIBUTE_VALUE_DELETE_BY_EXTERNAL_REFERENCE
+    variables = {"externalReference": "whatever", "id": "whatever"}
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_product_types_and_attributes]
+    )
+    content = get_graphql_content(response)
+
+    # then
+    errors = content["data"]["attributeValueDelete"]["errors"]
+    assert (
+        errors[0]["message"]
+        == "Argument 'id' cannot be combined with 'external_reference'"
+    )
+
+
+def test_delete_attribute_value_by_external_reference_not_existing(
+    staff_api_client,
+    color_attribute,
+    permission_manage_product_types_and_attributes,
+):
+    # given
+    query = ATTRIBUTE_VALUE_DELETE_BY_EXTERNAL_REFERENCE
+    ext_ref = "non-existing-ext-ref"
+    variables = {"externalReference": ext_ref}
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_product_types_and_attributes]
+    )
+    content = get_graphql_content(response)
+
+    # then
+    errors = content["data"]["attributeValueDelete"]["errors"]
+    assert errors[0]["message"] == f"Couldn't resolve to a node: {ext_ref}"

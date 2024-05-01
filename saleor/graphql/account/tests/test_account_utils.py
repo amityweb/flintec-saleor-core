@@ -1,8 +1,7 @@
-from django.contrib.auth.models import Group
-
-from ....account.models import User
+from ....account.models import Group, User
 from ....app.models import App
-from ....core.permissions import (
+from ....channel.models import Channel
+from ....permission.enums import (
     AccountPermissions,
     OrderPermissions,
     ProductPermissions,
@@ -10,6 +9,8 @@ from ....core.permissions import (
 from ..utils import (
     can_manage_app,
     can_user_manage_group,
+    can_user_manage_group_channels,
+    can_user_manage_group_permissions,
     get_group_permission_codes,
     get_group_to_permissions_and_users_mapping,
     get_groups_which_user_can_manage,
@@ -19,6 +20,7 @@ from ..utils import (
     get_not_manageable_permissions_when_deactivate_or_remove_users,
     get_out_of_scope_permissions,
     get_out_of_scope_users,
+    get_user_accessible_channels,
     get_user_permissions,
     get_users_and_look_for_permissions_in_groups_with_manage_staff,
     is_owner_or_has_one_of_perms,
@@ -26,10 +28,74 @@ from ..utils import (
 )
 
 
+def test_can_user_manage_group_is_true(
+    info,
+    staff_user,
+    permission_group_manage_users,
+    permission_group_all_perms_all_channels,
+):
+    # given
+    staff_user.groups.add(permission_group_all_perms_all_channels)
+
+    # when
+    can_manage = can_user_manage_group(info, staff_user, permission_group_manage_users)
+
+    # then
+    can_manage is True
+
+
+def test_can_user_manage_group_superuser(
+    info, superuser, permission_group_all_perms_all_channels
+):
+    # when
+    can_manage = can_user_manage_group(
+        info, superuser, permission_group_all_perms_all_channels
+    )
+
+    # then
+    can_manage is True
+
+
+def test_can_user_manage_group_no_channel_access(
+    info,
+    staff_user,
+    permission_group_all_perms_channel_USD_only,
+    permission_group_manage_apps,
+):
+    # given
+    staff_user.groups.add(permission_group_all_perms_channel_USD_only)
+
+    # when
+    can_manage = can_user_manage_group(info, staff_user, permission_group_manage_apps)
+
+    # then
+    can_manage is False
+
+
+def test_can_user_manage_group_no_permissions(
+    info,
+    staff_user,
+    permission_group_manage_staff,
+    permission_group_all_perms_all_channels,
+):
+    # given
+    staff_user.groups.add(permission_group_manage_staff)
+
+    # when
+    can_manage = can_user_manage_group(
+        info, staff_user, permission_group_all_perms_all_channels
+    )
+
+    # then
+    can_manage is False
+
+
 def test_can_manage_group_user_without_permissions(
     staff_user, permission_group_manage_users
 ):
-    result = can_user_manage_group(staff_user, permission_group_manage_users)
+    result = can_user_manage_group_permissions(
+        staff_user, permission_group_manage_users
+    )
     assert result is False
 
 
@@ -40,26 +106,104 @@ def test_can_manage_group_user_with_different_permissions(
     permission_manage_orders,
 ):
     staff_user.user_permissions.add(permission_manage_orders)
-    result = can_user_manage_group(staff_user, permission_group_manage_users)
+    result = can_user_manage_group_permissions(
+        staff_user, permission_group_manage_users
+    )
     assert result is False
 
 
-def test_can_manage_group(
+def test_can_manage_group_permissions(
     staff_user,
     permission_group_manage_users,
     permission_manage_users,
     permission_manage_orders,
 ):
     staff_user.user_permissions.add(permission_manage_users, permission_manage_orders)
-    result = can_user_manage_group(staff_user, permission_group_manage_users)
+    result = can_user_manage_group_permissions(
+        staff_user, permission_group_manage_users
+    )
     assert result is True
 
 
-def test_can_manage_group_user_superuser(
+def test_can_manage_group_permissions_user_superuser(
     admin_user, permission_group_manage_users, permission_manage_orders
 ):
-    result = can_user_manage_group(admin_user, permission_group_manage_users)
+    result = can_user_manage_group_permissions(
+        admin_user, permission_group_manage_users
+    )
     assert result is True
+
+
+def test_can_user_manage_group_channels(
+    info,
+    staff_user,
+    permission_group_no_perms_all_channels,
+    permission_group_manage_users,
+):
+    # given
+    staff_user.groups.add(permission_group_manage_users)
+
+    # when
+    can_manage = can_user_manage_group_channels(
+        info, staff_user, permission_group_no_perms_all_channels
+    )
+
+    # then
+    assert can_manage is True
+
+
+def test_can_user_manage_group_channels_user_with_restricted_channel_access(
+    info,
+    staff_user,
+    permission_group_all_perms_channel_USD_only,
+    channel_PLN,
+    channel_USD,
+):
+    # given
+    group = Group.objects.create(
+        name="Group with USD and PLN channel access.",
+        restricted_access_to_channels=True,
+    )
+    group.channels.add(channel_USD, channel_PLN)
+    staff_user.groups.add(group)
+
+    # when
+    can_manage = can_user_manage_group_channels(
+        info, staff_user, permission_group_all_perms_channel_USD_only
+    )
+
+    # then
+    assert can_manage is True
+
+
+def test_can_user_manage_group_channels_superuser(
+    info, superuser, permission_group_no_perms_all_channels
+):
+    # when
+    can_manage = can_user_manage_group_channels(
+        info, superuser, permission_group_no_perms_all_channels
+    )
+
+    # then
+    assert can_manage is True
+
+
+def test_can_user_manage_group_channels_no_channel_access(
+    info,
+    staff_user,
+    permission_group_all_perms_channel_USD_only,
+    permission_group_no_perms_all_channels,
+):
+    # given
+    staff_user.groups.add(permission_group_all_perms_channel_USD_only)
+
+    # when
+    can_manage = can_user_manage_group_channels(
+        info, staff_user, permission_group_no_perms_all_channels
+    )
+
+    # then
+    assert can_manage is False
 
 
 def test_get_out_of_scope_permissions_user_has_all_permissions(
@@ -532,9 +676,6 @@ def test_get_not_manageable_permissions_after_group_deleting_some_cannot_be_mana
 def test_get_not_manageable_permissions_removing_users_from_group(
     staff_users, permission_group_manage_users, permission_manage_staff
 ):
-    """Ensure not returning permission when some of users stay in group and groups has
-    manage staff permission.
-    """
     group = permission_group_manage_users
     group.permissions.add(permission_manage_staff)
     group.user_set.add(*staff_users)
@@ -549,9 +690,6 @@ def test_get_not_manageable_permissions_removing_users_from_group(
 def test_get_not_manageable_perms_removing_users_from_group_user_from_group_can_manage(
     staff_users, permission_manage_users, permission_manage_staff
 ):
-    """Ensure not returning permission for group without manage staff permission when
-    some of remaining users from group has manage staff permission from other source.
-    """
     groups = Group.objects.bulk_create(
         [Group(name="manage users"), Group(name="manage staff")]
     )
@@ -574,9 +712,6 @@ def test_get_not_manageable_perms_removing_users_from_group_user_from_group_can_
 def test_get_notmanageable_perms_removing_users_from_group_user_out_of_group_can_manage(
     staff_users, permission_manage_users, permission_manage_staff
 ):
-    """Ensure not returning permission for group, when manageable of all permissions are
-    ensure by other groups.
-    """
     groups = Group.objects.bulk_create(
         [Group(name="manage users"), Group(name="manage staff and users")]
     )
@@ -602,9 +737,6 @@ def test_get_not_manageable_perms_removing_users_from_group_some_cannot_be_manag
     permission_manage_staff,
     permission_manage_orders,
 ):
-    """Ensure returning permission for group, when manageable of all permissions are not
-    ensure by other groups.
-    """
     groups = Group.objects.bulk_create(
         [
             Group(name="manage users"),
@@ -636,8 +768,6 @@ def test_get_not_manageable_permissions_when_deactivate_or_remove_user_no_permis
     permission_manage_staff,
     permission_manage_orders,
 ):
-    """Ensure user can be deactivated or removed when manageable of all permissions are
-    ensure by other users."""
     groups = Group.objects.bulk_create(
         [
             Group(name="manage users"),
@@ -669,8 +799,6 @@ def test_get_not_manageable_permissions_when_deactivate_or_remove_users_some_per
     permission_manage_staff,
     permission_manage_orders,
 ):
-    """Ensure user cannot be deactivated or removed when manageable of all permissions
-    are not ensure by other users."""
     groups = Group.objects.bulk_create(
         [
             Group(name="manage users"),
@@ -738,8 +866,7 @@ def test_get_not_manageable_permissions_after_removing_perms_from_group_no_perms
     permission_manage_staff,
     permission_manage_orders,
 ):
-    """Ensure no permissions are returned when all perms will be manageable after removing
-    permissions from group."""
+    """Ensure no permissions are lost when after removing permissions from group."""
     groups = Group.objects.bulk_create(
         [
             Group(name="manage users and products"),
@@ -772,8 +899,6 @@ def test_get_not_manageable_permissions_after_removing_perms_from_group_some_can
     permission_manage_staff,
     permission_manage_orders,
 ):
-    """Ensure permissions are returned when not all perms will be manageable after
-    removing permissions from group."""
     groups = Group.objects.bulk_create(
         [
             Group(name="manage users and products"),
@@ -903,3 +1028,51 @@ def test_requestor_has_access_no_access_by_staff(
 
     # then
     assert result is False
+
+
+def test_get_user_accessible_channels_all_channels(
+    staff_user, permission_group_all_perms_all_channels, info, channel_PLN, channel_USD
+):
+    # given
+    permission_group_all_perms_all_channels.user_set.add(staff_user)
+
+    # when
+    channels = get_user_accessible_channels(info, staff_user)
+
+    # then
+    assert len(channels) == Channel.objects.count()
+
+
+def test_get_user_accessible_channels_some_channels(
+    staff_user,
+    permission_group_all_perms_channel_USD_only,
+    info,
+    channel_PLN,
+    channel_USD,
+):
+    # given
+    permission_group_all_perms_channel_USD_only.user_set.add(staff_user)
+
+    # when
+    channels = get_user_accessible_channels(info, staff_user)
+
+    # then
+    assert len(channels) == 1
+    assert channels[0] == channel_USD
+
+
+def test_get_user_accessible_channels_restricted_access_no_channels(
+    staff_user,
+    permission_group_all_perms_without_any_channel,
+    info,
+    channel_PLN,
+    channel_USD,
+):
+    # given
+    permission_group_all_perms_without_any_channel.user_set.add(staff_user)
+
+    # when
+    channels = get_user_accessible_channels(info, staff_user)
+
+    # then
+    assert len(channels) == 0

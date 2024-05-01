@@ -1,6 +1,7 @@
 import logging
+from copy import deepcopy
 from dataclasses import asdict
-from typing import List, Union
+from typing import Union
 
 from django.conf import settings
 from promise.promise import Promise
@@ -89,7 +90,7 @@ class AdminEmailPlugin(BasePlugin):
             "name": constants.CSV_EXPORT_FAILED_TEMPLATE_FIELD,
             "value": DEFAULT_EMAIL_VALUE,
         },
-    ] + DEFAULT_EMAIL_CONFIGURATION  # type: ignore
+    ] + DEFAULT_EMAIL_CONFIGURATION
 
     CONFIG_STRUCTURE = {
         constants.STAFF_PASSWORD_RESET_SUBJECT_FIELD: {
@@ -143,25 +144,25 @@ class AdminEmailPlugin(BasePlugin):
             "label": "CSV export failed template",
         },
     }
-    CONFIG_STRUCTURE.update(DEFAULT_EMAIL_CONFIG_STRUCTURE)
-    CONFIG_STRUCTURE["host"][
-        "help_text"
-    ] += " Leave it blank if you want to use system environment - EMAIL_HOST."
-    CONFIG_STRUCTURE["port"][
-        "help_text"
-    ] += " Leave it blank if you want to use system environment - EMAIL_PORT."
-    CONFIG_STRUCTURE["username"][
-        "help_text"
-    ] += " Leave it blank if you want to use system environment - EMAIL_HOST_USER."
-    CONFIG_STRUCTURE["password"][
-        "help_text"
-    ] += " Leave it blank if you want to use system environment - EMAIL_HOST_PASSWORD."
-    CONFIG_STRUCTURE["use_tls"][
-        "help_text"
-    ] += " Leave it blank if you want to use system environment - EMAIL_USE_TLS."
-    CONFIG_STRUCTURE["use_ssl"][
-        "help_text"
-    ] += " Leave it blank if you want to use system environment - EMAIL_USE_SSL."
+    CONFIG_STRUCTURE.update(deepcopy(DEFAULT_EMAIL_CONFIG_STRUCTURE))
+    CONFIG_STRUCTURE["host"]["help_text"] += (
+        " Leave it blank if you want to use system environment - EMAIL_HOST."
+    )
+    CONFIG_STRUCTURE["port"]["help_text"] += (
+        " Leave it blank if you want to use system environment - EMAIL_PORT."
+    )
+    CONFIG_STRUCTURE["username"]["help_text"] += (
+        " Leave it blank if you want to use system environment - EMAIL_HOST_USER."
+    )
+    CONFIG_STRUCTURE["password"]["help_text"] += (
+        " Leave it blank if you want to use system environment - EMAIL_HOST_PASSWORD."
+    )
+    CONFIG_STRUCTURE["use_tls"]["help_text"] += (
+        " Leave it blank if you want to use system environment - EMAIL_USE_TLS."
+    )
+    CONFIG_STRUCTURE["use_ssl"]["help_text"] += (
+        " Leave it blank if you want to use system environment - EMAIL_USE_SSL."
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -169,7 +170,7 @@ class AdminEmailPlugin(BasePlugin):
         configuration = {item["name"]: item["value"] for item in self.configuration}
         self.config = EmailConfig(
             host=configuration["host"] or settings.EMAIL_HOST,
-            port=configuration["port"] or settings.EMAIL_PORT,
+            port=configuration["port"] or str(settings.EMAIL_PORT),
             username=configuration["username"] or settings.EMAIL_HOST_USER,
             password=configuration["password"] or settings.EMAIL_HOST_PASSWORD,
             sender_name=configuration["sender_name"],
@@ -188,9 +189,8 @@ class AdminEmailPlugin(BasePlugin):
             return self.configuration
 
         def map_templates_to_configuration(
-            email_templates: List["EmailTemplate"],
+            email_templates: list["EmailTemplate"],
         ) -> PluginConfigurationType:
-
             email_template_by_name = {
                 email_template.name: email_template
                 for email_template in email_templates
@@ -227,7 +227,7 @@ class AdminEmailPlugin(BasePlugin):
             return previous_value
 
         event_func = event_map[event]
-        config = asdict(self.config)  # type: ignore
+        config = asdict(self.config)
         event_func(payload, config, self)
 
     @classmethod

@@ -4,7 +4,9 @@ import graphene
 from measurement.measures import Weight
 
 from .....attribute.models import Attribute, AttributeValue
-from .....attribute.utils import associate_attribute_values_to_instance
+from .....attribute.utils import (
+    associate_attribute_values_to_instance,
+)
 from .....channel.models import Channel
 from .....product.models import Product, ProductVariant, VariantMedia
 from .....warehouse.models import Warehouse
@@ -43,6 +45,7 @@ def test_get_products_data(product, product_with_image, collection, image, chann
         value
         for mapping in ProductExportFields.HEADERS_TO_FIELDS_MAPPING.values()
         for value in mapping.values()
+        if value
     )
     warehouse_ids = [str(warehouse.pk) for warehouse in Warehouse.objects.all()]
     attribute_ids = [str(attr.pk) for attr in Attribute.objects.all()]
@@ -78,19 +81,18 @@ def test_get_products_data(product, product_with_image, collection, image, chann
             "description_as_str": json.dumps(product.description),
             "category__slug": product.category.slug,
             "product_type__name": product.product_type.name,
-            "charge_taxes": product.charge_taxes,
             "collections__slug": (
                 ""
                 if not product.collections.all()
                 else product.collections.first().slug
             ),
             "product_weight": (
-                "{} g".format(int(product.weight.value)) if product.weight else ""
+                f"{int(product.weight.value)} g" if product.weight else ""
             ),
             "media__image": (
                 ""
                 if not product.media.all()
-                else "http://mirumee.com{}".format(product.media.first().image.url)
+                else f"http://mirumee.com{product.media.first().image.url}"
             ),
         }
 
@@ -110,7 +112,7 @@ def test_get_products_data(product, product_with_image, collection, image, chann
                 "variants__media__image": (
                     ""
                     if not variant.media.all()
-                    else "http://mirumee.com{}".format(variant.media.first().image.url)
+                    else f"http://mirumee.com{variant.media.first().image.url}"
                 ),
                 "variant_weight": (
                     "{} g".foramt(int(variant.weight.value)) if variant.weight else ""
@@ -245,8 +247,10 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
     file_attribute,
     page_list,
     product,
+    variant,
     product_type_page_reference_attribute,
     product_type_product_reference_attribute,
+    product_type_variant_reference_attribute,
     numeric_attribute,
     product_with_image,
     product_with_variant_with_two_attributes,
@@ -264,6 +268,7 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
         file_attribute,
         product_type_page_reference_attribute,
         product_type_product_reference_attribute,
+        product_type_variant_reference_attribute,
         numeric_attribute,
         rich_text_attribute,
         swatch_attribute,
@@ -275,6 +280,7 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
         file_attribute,
         product_type_page_reference_attribute,
         product_type_product_reference_attribute,
+        product_type_variant_reference_attribute,
         numeric_attribute,
         rich_text_attribute,
         swatch_attribute,
@@ -290,41 +296,36 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
     # add boolean attribute
     associate_attribute_values_to_instance(
         variant_with_many_stocks,
-        boolean_attribute,
-        boolean_attribute.values.first(),
+        {boolean_attribute.pk: [boolean_attribute.values.first()]},
     )
     associate_attribute_values_to_instance(
-        product, boolean_attribute, boolean_attribute.values.first()
+        product, {boolean_attribute.pk: [boolean_attribute.values.first()]}
     )
 
     # add date attribute
     associate_attribute_values_to_instance(
-        variant_with_many_stocks,
-        date_attribute,
-        date_attribute.values.first(),
+        variant_with_many_stocks, {date_attribute.pk: [date_attribute.values.first()]}
     )
     associate_attribute_values_to_instance(
-        product, date_attribute, date_attribute.values.first()
+        product, {date_attribute.pk: [date_attribute.values.first()]}
     )
 
     # add date time attribute
     associate_attribute_values_to_instance(
         variant_with_many_stocks,
-        date_time_attribute,
-        date_time_attribute.values.first(),
+        {date_time_attribute.pk: [date_time_attribute.values.first()]},
     )
     associate_attribute_values_to_instance(
-        product, date_time_attribute, date_time_attribute.values.first()
+        product, {date_time_attribute.pk: [date_time_attribute.values.first()]}
     )
 
     # add rich text attribute
     associate_attribute_values_to_instance(
         variant_with_many_stocks,
-        rich_text_attribute,
-        rich_text_attribute.values.first(),
+        {rich_text_attribute.pk: [rich_text_attribute.values.first()]},
     )
     associate_attribute_values_to_instance(
-        product, rich_text_attribute, rich_text_attribute.values.first()
+        product, {rich_text_attribute.pk: [rich_text_attribute.values.first()]}
     )
 
     # add page reference attribute
@@ -342,11 +343,10 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
     )
     associate_attribute_values_to_instance(
         variant_with_many_stocks,
-        product_type_page_reference_attribute,
-        variant_page_ref_value,
+        {product_type_page_reference_attribute.pk: [variant_page_ref_value]},
     )
     associate_attribute_values_to_instance(
-        product, product_type_page_reference_attribute, product_page_ref_value
+        product, {product_type_page_reference_attribute.pk: [product_page_ref_value]}
     )
 
     # add product reference attribute
@@ -367,11 +367,33 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
     )
     associate_attribute_values_to_instance(
         variant_with_many_stocks,
-        product_type_product_reference_attribute,
-        variant_product_ref_value,
+        {product_type_product_reference_attribute.pk: [variant_product_ref_value]},
     )
     associate_attribute_values_to_instance(
-        product, product_type_product_reference_attribute, product_product_ref_value
+        product,
+        {product_type_product_reference_attribute.pk: [product_product_ref_value]},
+    )
+
+    # add variant reference attribute
+    variant_variant_ref_value = AttributeValue.objects.create(
+        attribute=product_type_variant_reference_attribute,
+        reference_variant=variant,
+        slug=(f"{variant_with_many_stocks.pk}_{variant.pk}"),
+        name=variant.name,
+    )
+    product_variant_ref_value = AttributeValue.objects.create(
+        attribute=product_type_variant_reference_attribute,
+        reference_variant=variant,
+        slug=f"{product.pk}_{variant.pk}",
+        name=variant.name,
+    )
+    associate_attribute_values_to_instance(
+        variant_with_many_stocks,
+        {product_type_variant_reference_attribute.pk: [variant_variant_ref_value]},
+    )
+    associate_attribute_values_to_instance(
+        product,
+        {product_type_variant_reference_attribute.pk: [product_variant_ref_value]},
     )
 
     # add numeric attribute
@@ -379,25 +401,28 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
     numeric_value_2 = numeric_attribute.values.last()
 
     associate_attribute_values_to_instance(
-        variant_with_many_stocks, numeric_attribute, numeric_value_1
+        variant_with_many_stocks, {numeric_attribute.pk: [numeric_value_1]}
     )
-    associate_attribute_values_to_instance(product, numeric_attribute, numeric_value_2)
+    associate_attribute_values_to_instance(
+        product, {numeric_attribute.pk: [numeric_value_2]}
+    )
 
     # create assigned product without values
     associate_attribute_values_to_instance(
-        product, color_attribute, color_attribute.values.first()
+        product, {color_attribute.pk: [color_attribute.values.first()]}
     )
-    assigned_product = product.attributes.get(assignment__attribute=color_attribute)
-    assigned_product.values.clear()
+    product.attributevalues.all().delete()
 
     # add swatch attribute
     swatch_value_1 = swatch_attribute.values.first()
     swatch_value_2 = swatch_attribute.values.last()
 
     associate_attribute_values_to_instance(
-        variant_with_many_stocks, swatch_attribute, swatch_value_1
+        variant_with_many_stocks, {swatch_attribute.pk: [swatch_value_1]}
     )
-    associate_attribute_values_to_instance(product, swatch_attribute, swatch_value_2)
+    associate_attribute_values_to_instance(
+        product, {swatch_attribute.pk: [swatch_value_2]}
+    )
 
     products = Product.objects.all()
     export_fields = {"id", "variants__sku"}
@@ -419,6 +444,7 @@ def test_get_products_data_for_specified_warehouses_channels_and_attributes(
         product_data = add_product_attribute_data_to_expected_data(
             product_data, product, attribute_ids
         )
+
         product_data = add_channel_to_expected_product_data(
             product_data, product, channel_ids
         )

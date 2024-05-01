@@ -1,10 +1,22 @@
+from typing import cast
+
 import graphene
 
-from ....core.permissions import OrderPermissions
+from ....account.models import User
 from ....order.actions import fulfillment_tracking_updated
 from ....order.notifications import send_fulfillment_update
+<<<<<<< HEAD
+=======
+from ....permission.enums import OrderPermissions
+from ....webhook.event_types import WebhookEventAsyncType
+from ...app.dataloaders import get_app_promise
+from ...core import ResolveInfo
+from ...core.doc_category import DOC_CATEGORY_ORDERS
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 from ...core.mutations import BaseMutation
 from ...core.types import OrderError
+from ...core.utils import WebhookEventInfo
+from ...plugins.dataloaders import get_plugin_manager_promise
 from ..types import Fulfillment, Order
 from .order_fulfill import FulfillmentUpdateTrackingInput
 
@@ -25,16 +37,38 @@ class FulfillmentUpdateTracking(BaseMutation):
 
     class Meta:
         description = "Updates a fulfillment for an order."
+        doc_category = DOC_CATEGORY_ORDERS
         permissions = (OrderPermissions.MANAGE_ORDERS,)
         error_type_class = OrderError
         error_type_field = "order_errors"
+        webhook_events_info = [
+            WebhookEventInfo(
+                type=WebhookEventAsyncType.FULFILLMENT_TRACKING_NUMBER_UPDATED,
+                description="Fulfillment tracking number is updated.",
+            )
+        ]
 
     @classmethod
-    def perform_mutation(cls, _root, info, **data):
-        fulfillment = cls.get_node_or_error(info, data.get("id"), only_type=Fulfillment)
-        tracking_number = data.get("input").get("tracking_number") or ""
+    def perform_mutation(  # type: ignore[override]
+        cls,
+        _root,
+        info: ResolveInfo,
+        /,
+        *,
+        id,
+        input,
+    ):
+        user = info.context.user
+        user = cast(User, user)
+        fulfillment = cls.get_node_or_error(info, id, only_type=Fulfillment)
+
+        order = fulfillment.order
+        cls.check_channel_permissions(info, [order.channel_id])
+
+        tracking_number = input.get("tracking_number") or ""
         fulfillment.tracking_number = tracking_number
         fulfillment.save()
+<<<<<<< HEAD
         order = fulfillment.order
         fulfillment_tracking_updated(
             fulfillment,
@@ -45,6 +79,15 @@ class FulfillmentUpdateTracking(BaseMutation):
         )
         input_data = data.get("input", {})
         notify_customer = input_data.get("notify_customer")
+=======
+
+        app = get_app_promise(info.context).get()
+        manager = get_plugin_manager_promise(info.context).get()
+        fulfillment_tracking_updated(fulfillment, user, app, tracking_number, manager)
+
+        notify_customer = input.get("notify_customer")
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
         if notify_customer:
-            send_fulfillment_update(order, fulfillment, info.context.plugins)
+            send_fulfillment_update(order, fulfillment, manager)
+
         return FulfillmentUpdateTracking(fulfillment=fulfillment, order=order)

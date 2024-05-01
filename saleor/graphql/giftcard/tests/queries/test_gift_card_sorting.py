@@ -14,6 +14,7 @@ QUERY_GIFT_CARDS = """
                 node {
                     id
                     last4CodeChars
+                    created
                 }
             }
             totalCount
@@ -24,7 +25,7 @@ QUERY_GIFT_CARDS = """
 
 @pytest.mark.parametrize(
     "direction",
-    ("ASC", "DESC"),
+    ["ASC", "DESC"],
 )
 def test_sorting_gift_cards_by_current_balance(
     direction,
@@ -94,7 +95,7 @@ def test_sorting_gift_cards_by_current_balance_no_currency_in_filter(
 
 @pytest.mark.parametrize(
     "direction",
-    ("ASC", "DESC"),
+    ["ASC", "DESC"],
 )
 def test_sorting_gift_cards_by_product(
     direction,
@@ -139,7 +140,7 @@ def test_sorting_gift_cards_by_product(
 
 @pytest.mark.parametrize(
     "direction",
-    ("ASC", "DESC"),
+    ["ASC", "DESC"],
 )
 def test_sorting_gift_cards_by_used_by(
     direction,
@@ -177,3 +178,36 @@ def test_sorting_gift_cards_by_used_by(
     assert [card["node"]["id"] for card in data] == [
         graphene.Node.to_global_id("GiftCard", card.pk) for card in gift_card_list
     ]
+
+
+@pytest.mark.parametrize(
+    "direction",
+    ["ASC", "DESC"],
+)
+def test_sorting_gift_cards_by_created_at(
+    direction,
+    staff_api_client,
+    gift_card_list,
+    permission_manage_gift_card,
+):
+    # given
+    variables = {
+        "sortBy": {
+            "direction": direction,
+            "field": "CREATED_AT",
+        }
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_GIFT_CARDS, variables, permissions=[permission_manage_gift_card]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    creation_dates = [
+        gc["node"]["created"] for gc in content["data"]["giftCards"]["edges"]
+    ]
+    if direction == "DESC":
+        creation_dates.reverse()
+    assert creation_dates[0] < creation_dates[1] < creation_dates[2]

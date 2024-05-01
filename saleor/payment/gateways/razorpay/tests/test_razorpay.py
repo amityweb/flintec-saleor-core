@@ -38,7 +38,7 @@ def gateway_config():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def razorpay_success_response():
     return {
         "id": "transaction123",
@@ -47,13 +47,13 @@ def razorpay_success_response():
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def razorpay_payment(payment_dummy):
     payment_dummy.currency = "INR"
     return payment_dummy
 
 
-@pytest.fixture()
+@pytest.fixture
 def charged_payment(razorpay_payment):
     razorpay_payment.captured_amount = razorpay_payment.total
     razorpay_payment.charge_status = ChargeStatus.FULLY_CHARGED
@@ -106,7 +106,6 @@ def test_get_client_token():
 def test_charge(
     mocked_gateway, razorpay_payment, razorpay_success_response, gateway_config
 ):
-
     # Data to be passed
     payment_token = "123"
 
@@ -160,7 +159,6 @@ def test_charge_unsupported_currency(razorpay_payment, gateway_config):
 def test_charge_invalid_request(
     mocked_gateway, mocked_logger, razorpay_payment, gateway_config
 ):
-
     # Data to be passed
     payment_token = "123"
 
@@ -192,7 +190,6 @@ def test_charge_invalid_request(
 def test_refund(
     mocked_gateway, charged_payment, razorpay_success_response, gateway_config
 ):
-
     # Mock the gateway response to a success response
     mocked_gateway.return_value.payment.refund.return_value = razorpay_success_response
 
@@ -244,7 +241,6 @@ def test_refund_invalid_data(
     razorpay_success_response,
     gateway_config,
 ):
-
     # Assign the side effect to the gateway's `refund()` method,
     # that should trigger the expected error.
     mocked_gateway.return_value.payment.refund.side_effect = ServerError()

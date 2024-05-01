@@ -2,10 +2,9 @@ from unittest.mock import MagicMock
 
 import graphene
 import pytest
-from django.contrib.auth.models import Group
 from django.core.files import File
 
-from .....account.models import User
+from .....account.models import Group, User
 from ....tests.utils import get_graphql_content
 
 
@@ -42,6 +41,7 @@ def test_query_staff_user(
                 lastName
                 isStaff
                 isActive
+                isConfirmed
                 addresses {
                     id
                     isDefaultShippingAddress

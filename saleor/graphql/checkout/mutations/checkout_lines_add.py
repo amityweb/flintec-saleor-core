@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import graphene
 
 from ....checkout.error_codes import CheckoutErrorCode
@@ -8,14 +6,24 @@ from ....checkout.fetch import (
     fetch_checkout_lines,
     update_delivery_method_lists_for_checkout_info,
 )
-from ....checkout.utils import add_variants_to_checkout, invalidate_checkout_prices
+from ....checkout.utils import add_variants_to_checkout, invalidate_checkout
 from ....warehouse.reservations import get_reservation_length, is_reservation_enabled
+<<<<<<< HEAD
+=======
+from ....webhook.event_types import WebhookEventAsyncType
+from ...app.dataloaders import get_app_promise
+from ...core import ResolveInfo
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 from ...core.descriptions import ADDED_IN_34, DEPRECATED_IN_3X_INPUT
+from ...core.doc_category import DOC_CATEGORY_CHECKOUT
 from ...core.mutations import BaseMutation
 from ...core.scalars import UUID
 from ...core.types import CheckoutError, NonNullList
+from ...core.utils import WebhookEventInfo
 from ...core.validators import validate_variants_available_in_channel
+from ...plugins.dataloaders import get_plugin_manager_promise
 from ...product.types import ProductVariant
+from ...site.dataloaders import get_site_promise
 from ..types import Checkout
 from .checkout_create import CheckoutLineInput
 from .utils import (
@@ -24,6 +32,7 @@ from .utils import (
     get_checkout,
     get_variants_and_total_quantities,
     group_lines_input_on_add,
+    update_checkout_external_shipping_method_if_invalid,
     update_checkout_shipping_method_if_invalid,
     validate_variants_are_published,
     validate_variants_available_for_purchase,
@@ -62,8 +71,15 @@ class CheckoutLinesAdd(BaseMutation):
             "Adds a checkout line to the existing checkout."
             "If line was already in checkout, its quantity will be increased."
         )
+        doc_category = DOC_CATEGORY_CHECKOUT
         error_type_class = CheckoutError
         error_type_field = "checkout_errors"
+        webhook_events_info = [
+            WebhookEventInfo(
+                type=WebhookEventAsyncType.CHECKOUT_UPDATED,
+                description="A checkout was updated.",
+            )
+        ]
 
     @classmethod
     def validate_checkout_lines(
@@ -79,15 +95,16 @@ class CheckoutLinesAdd(BaseMutation):
         variants, quantities = get_variants_and_total_quantities(
             variants, checkout_lines_data
         )
+        site = get_site_promise(info.context).get()
         check_lines_quantity(
             variants,
             quantities,
             country,
             channel_slug,
-            info.context.site.settings.limit_quantity_per_checkout,
+            site.settings.limit_quantity_per_checkout,
             delivery_method_info=delivery_method_info,
             existing_lines=lines,
-            check_reservations=is_reservation_enabled(info.context.site.settings),
+            check_reservations=is_reservation_enabled(site.settings),
         )
 
     @classmethod
@@ -100,7 +117,6 @@ class CheckoutLinesAdd(BaseMutation):
         checkout_info,
         lines,
         manager,
-        discounts,
         replace,
     ):
         channel_slug = checkout_info.channel.slug
@@ -129,13 +145,14 @@ class CheckoutLinesAdd(BaseMutation):
             validate_variants_available_in_channel(
                 variants_ids_to_validate,
                 checkout.channel_id,
-                CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL,
+                CheckoutErrorCode.UNAVAILABLE_VARIANT_IN_CHANNEL.value,
             )
             validate_variants_are_published(
                 variants_ids_to_validate, checkout.channel_id
             )
 
         if variants and checkout_lines_data:
+            site = get_site_promise(info.context).get()
             checkout = add_variants_to_checkout(
                 checkout,
                 variants,
@@ -143,7 +160,9 @@ class CheckoutLinesAdd(BaseMutation):
                 checkout_info.channel,
                 replace=replace,
                 replace_reservations=True,
-                reservation_length=get_reservation_length(info.context),
+                reservation_length=get_reservation_length(
+                    site=site, user=info.context.user
+                ),
             )
 
         lines, _ = fetch_checkout_lines(checkout)
@@ -154,42 +173,42 @@ class CheckoutLinesAdd(BaseMutation):
             checkout_info.checkout.collection_point,
             checkout_info.shipping_address,
             lines,
-            discounts,
             manager,
             shipping_channel_listings,
         )
         return lines
 
     @classmethod
-    def perform_mutation(
-        cls, _root, info, lines, checkout_id=None, token=None, id=None, replace=False
+    def perform_mutation(  # type: ignore[override]
+        cls,
+        _root,
+        info: ResolveInfo,
+        /,
+        *,
+        lines,
+        checkout_id=None,
+        token=None,
+        id=None,
+        replace=False,
     ):
+<<<<<<< HEAD
         check_permissions_for_custom_prices(info.context.app, lines)
+=======
+        app = get_app_promise(info.context).get()
+        check_permissions_for_custom_prices(app, lines)
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 
-        checkout = get_checkout(
-            cls,
-            info,
-            checkout_id=checkout_id,
-            token=token,
-            id=id,
-            error_class=CheckoutErrorCode,
-        )
-
-        discounts = info.context.discounts
-        manager = info.context.plugins
-
+        checkout = get_checkout(cls, info, checkout_id=checkout_id, token=token, id=id)
+        manager = get_plugin_manager_promise(info.context).get()
         variants = cls._get_variants_from_lines_input(lines)
-
         shipping_channel_listings = checkout.channel.shipping_method_listings.all()
         checkout_info = fetch_checkout_info(
-            checkout, [], discounts, manager, shipping_channel_listings
+            checkout, [], manager, shipping_channel_listings
         )
-
         existing_lines_info, _ = fetch_checkout_lines(
             checkout, skip_lines_with_unavailable_variants=False
         )
         input_lines_data = cls._get_grouped_lines_data(lines, existing_lines_info)
-
         lines = cls.clean_input(
             info,
             checkout,
@@ -198,17 +217,18 @@ class CheckoutLinesAdd(BaseMutation):
             checkout_info,
             existing_lines_info,
             manager,
-            discounts,
             replace,
         )
+
+        update_checkout_external_shipping_method_if_invalid(checkout_info, lines)
         update_checkout_shipping_method_if_invalid(checkout_info, lines)
-        invalidate_checkout_prices(checkout_info, lines, manager, discounts, save=True)
-        manager.checkout_updated(checkout)
+        invalidate_checkout(checkout_info, lines, manager, save=True)
+        cls.call_event(manager.checkout_updated, checkout)
 
         return CheckoutLinesAdd(checkout=checkout)
 
     @classmethod
-    def _get_variants_from_lines_input(cls, lines: List[Dict]) -> List[ProductVariant]:
+    def _get_variants_from_lines_input(cls, lines: list[dict]) -> list[ProductVariant]:
         """Return list of ProductVariant objects.
 
         Uses variants ids provided in CheckoutLineInput to fetch ProductVariant objects.

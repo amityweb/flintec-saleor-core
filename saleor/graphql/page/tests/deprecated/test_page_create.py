@@ -64,6 +64,7 @@ def test_page_create_mutation_with_publication_date(
     # Default attributes defined in product_type fixture
     tag_attr = page_type.page_attributes.get(name="tag")
     tag_value_slug = tag_attr.values.first().slug
+    tag_value_name = tag_attr.values.first().name
     tag_attr_id = graphene.Node.to_global_id("Attribute", tag_attr.id)
 
     # Add second attribute
@@ -81,7 +82,7 @@ def test_page_create_mutation_with_publication_date(
             "slug": page_slug,
             "pageType": page_type_id,
             "attributes": [
-                {"id": tag_attr_id, "values": [tag_value_slug]},
+                {"id": tag_attr_id, "values": [tag_value_name]},
                 {"id": size_attr_id, "values": [non_existent_attr_value]},
             ],
         }
@@ -110,8 +111,7 @@ def test_page_create_mutation_with_publication_date(
 def test_page_create_mutation_publication_date_and_published_at_provided(
     staff_api_client, permission_manage_pages, page_type
 ):
-    """Ensure an error is raised when publishedAt and publicationDate are both
-    provided."""
+    """Test that setting publication date and time are mutually exclusive."""
     page_slug = "test-slug"
     page_content = dummy_editorjs("test content", True)
     page_title = "test title"

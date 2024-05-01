@@ -14,7 +14,7 @@ from .....core.utils.json_serializer import CustomJsonEncoder
 from .....webhook.event_types import WebhookEventAsyncType
 from .....webhook.payloads import generate_meta, generate_requestor
 from ....tests.utils import get_graphql_content
-from ...mutations import validate_value_is_unique
+from ...mutations.validators import validate_value_is_unique
 
 
 def test_validate_value_is_unique(color_attribute):
@@ -35,12 +35,13 @@ def test_validate_value_is_unique(color_attribute):
 
 CREATE_ATTRIBUTE_VALUE_MUTATION = """
     mutation createAttributeValue(
-        $attributeId: ID!, $name: String!,
+        $attributeId: ID!, $name: String!, $externalReference: String,
         $value: String, $fileUrl: String, $contentType: String
     ) {
     attributeValueCreate(
         attribute: $attributeId, input: {
-            name: $name, value: $value, fileUrl: $fileUrl, contentType: $contentType
+            name: $name, value: $value, fileUrl: $fileUrl,
+            contentType: $contentType, externalReference: $externalReference
         }) {
         errors {
             field
@@ -64,6 +65,7 @@ CREATE_ATTRIBUTE_VALUE_MUTATION = """
         attributeValue {
             name
             slug
+            externalReference
         }
     }
 }
@@ -78,7 +80,12 @@ def test_create_attribute_value(
     query = CREATE_ATTRIBUTE_VALUE_MUTATION
     attribute_id = graphene.Node.to_global_id("Attribute", attribute.id)
     name = "test name"
-    variables = {"name": name, "attributeId": attribute_id}
+    external_reference = "test-ext-ref"
+    variables = {
+        "name": name,
+        "attributeId": attribute_id,
+        "externalReference": external_reference,
+    }
 
     # when
     response = staff_api_client.post_graphql(
@@ -93,6 +100,7 @@ def test_create_attribute_value(
     attr_data = data["attributeValue"]
     assert attr_data["name"] == name
     assert attr_data["slug"] == slugify(name)
+    assert attr_data["externalReference"] == external_reference
     assert name in [
         value["node"]["name"] for value in data["attribute"]["choices"]["edges"]
     ]
@@ -147,6 +155,7 @@ def test_create_attribute_value_trigger_webhooks(
         [any_webhook],
         color_attribute,
         SimpleLazyObject(lambda: staff_api_client.user),
+        allow_replica=False,
     )
 
     attribute_value_created_call = mock.call(
@@ -164,6 +173,7 @@ def test_create_attribute_value_trigger_webhooks(
         [any_webhook],
         attribute_value,
         SimpleLazyObject(lambda: staff_api_client.user),
+        allow_replica=False,
     )
 
     # then
@@ -180,8 +190,6 @@ def test_create_attribute_value_with_the_same_name_as_different_attribute_value(
     color_attribute,
     permission_manage_products,
 ):
-    """Ensure the attribute value with the same slug as value of different attribute
-    can be created."""
     # given
     attribute = attribute_without_values
     query = CREATE_ATTRIBUTE_VALUE_MUTATION
@@ -316,7 +324,7 @@ def test_create_swatch_attribute_value_with_value_and_file(
 
 
 @pytest.mark.parametrize(
-    "field, value",
+    ("field", "value"),
     [
         ("fileUrl", "http://mirumee.com/test_media/test_file.jpeg"),
         ("contentType", "jpeg"),
@@ -389,3 +397,37 @@ def test_create_attribute_value_capitalized_name(
     data = content["data"]["attributeValueCreate"]
     assert not data["errors"]
     assert data["attributeValue"]["slug"] == "red-2"
+
+
+def test_create_attribute_value_with_non_unique_external_reference(
+    staff_api_client, color_attribute, permission_manage_products
+):
+    # given
+    query = CREATE_ATTRIBUTE_VALUE_MUTATION
+
+    ext_ref = "test-ext-ref"
+    value = color_attribute.values.first()
+    value.external_reference = ext_ref
+    value.save(update_fields=["external_reference"])
+    attribute_id = graphene.Node.to_global_id("Attribute", color_attribute.id)
+
+    variables = {
+        "name": "some value name",
+        "attributeId": attribute_id,
+        "externalReference": ext_ref,
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_products]
+    )
+    content = get_graphql_content(response)
+
+    # then
+    error = content["data"]["attributeValueCreate"]["errors"][0]
+    assert error["field"] == "externalReference"
+    assert error["code"] == AttributeErrorCode.UNIQUE.name
+    assert (
+        error["message"]
+        == "Attribute value with this External reference already exists."
+    )

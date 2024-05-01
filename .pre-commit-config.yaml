@@ -1,12 +1,16 @@
+exclude: ^.semgrep/
 repos:
+<<<<<<< HEAD
   - repo: https://github.com/ambv/black
     rev: 22.6.0
     hooks:
       - id: black
         language_version: python3.9
 
+=======
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.3.0
+    rev: v4.5.0
     hooks:
       - id: trailing-whitespace
         exclude: ^templates/templated_email/compiled/
@@ -15,29 +19,48 @@ repos:
         exclude: ^templates/templated_email/compiled/
         exclude_types: [svg]
 
-  - repo: https://gitlab.com/pycqa/flake8
-    rev: 3.9.2
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.4
     hooks:
-      - id: flake8
-
-  - repo: https://github.com/pycqa/isort
-    rev: 5.10.1
-    hooks:
-      - id: isort
-
-  - repo: https://github.com/pycqa/pydocstyle
-    rev: 6.1.1
-    hooks:
-      - id: pydocstyle
-        files: ^saleor/
-        exclude: tests/
+      - id: ruff
+      - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v0.971
+    rev: v1.9.0
     hooks:
       - id: mypy
         language: system
         exclude: tests/
+
+  - repo: https://github.com/fpgmaas/deptry.git
+    rev: "0.15.0"
+    hooks:
+      - id: deptry
+
+  - repo: https://github.com/returntocorp/semgrep
+    rev: v1.66.2
+    hooks:
+    - id: semgrep
+      language_version: python3.9
+      exclude_types:
+        - yaml
+      args:
+        - scan
+        - --config
+        - .semgrep/
+        # Do not try to scan '.semgrep/' directories as they contain test files
+        # thus they will trigger findings.
+        - --exclude=.semgrep/
+        # Set the exit code to non-zero if there are findings.
+        - --error
+        # Do not check for version updates, it slows down the execution.
+        - --disable-version-check
+        # Do not append directory names to the rules, otherwise
+        # it may misbehave.
+        - --no-rewrite-rule-ids
+        # Quiet mode in order to not pollute the pre-commit outputs.
+        # Replace --quiet with --verbose to debug issues.
+        - --quiet
 
   - repo: local
     hooks:

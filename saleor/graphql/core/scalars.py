@@ -1,7 +1,7 @@
 import decimal
 
 import graphene
-from graphql.error import GraphQLError
+from graphene.types.generic import GenericScalar
 from graphql.language import ast
 from measurement.measures import Weight
 
@@ -37,31 +37,47 @@ class Decimal(graphene.Float):
 
 
 class PositiveDecimal(Decimal):
-    """Positive Decimal scalar implementation.
+    """Nonnegative Decimal scalar implementation.
 
-    Should be used in places where value must be positive.
+    Should be used in places where value must be nonnegative (0 or greater).
     """
 
     @staticmethod
     def parse_value(value):
         value = super(PositiveDecimal, PositiveDecimal).parse_value(value)
         if value and value < 0:
-            raise GraphQLError(
-                f"Value cannot be lower than 0. Unsupported value: {value}"
-            )
+            return None
         return value
+
+
+class JSON(GenericScalar):
+    @staticmethod
+    def parse_literal(node):
+        if isinstance(node, ast.ObjectValue):
+            return {
+                field.name.value: GenericScalar.parse_literal(field.value)
+                for field in node.fields
+            }
+        elif isinstance(node, ast.ListValue):
+            return [GenericScalar.parse_literal(value) for value in node.values]
+        return None
+
+    @staticmethod
+    def parse_value(value):
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list):
+            return [GenericScalar.parse_value(v) for v in value]
+        return None
 
 
 class WeightScalar(graphene.Scalar):
     @staticmethod
     def parse_value(value):
-        weight = None
         if isinstance(value, dict):
             weight = Weight(**{value["unit"]: value["value"]})
         else:
             weight = WeightScalar.parse_decimal(value)
-        if weight is None:
-            raise GraphQLError(f"Unsupported value: {value}")
         return weight
 
     @staticmethod
@@ -73,13 +89,10 @@ class WeightScalar(graphene.Scalar):
 
     @staticmethod
     def parse_literal(node):
-        weight = None
         if isinstance(node, ast.ObjectValue):
             weight = WeightScalar.parse_literal_object(node)
         else:
             weight = WeightScalar.parse_decimal(node.value)
-        if weight is None:
-            raise GraphQLError(f"Unsupported value: {node.value}")
         return weight
 
     @staticmethod
@@ -93,7 +106,7 @@ class WeightScalar(graphene.Scalar):
 
     @staticmethod
     def parse_literal_object(node):
-        value = 0
+        value = decimal.Decimal(0)
         unit = get_default_weight_unit()
 
         for field in node.fields:
@@ -101,7 +114,7 @@ class WeightScalar(graphene.Scalar):
                 try:
                     value = decimal.Decimal(field.value.value)
                 except decimal.DecimalException:
-                    raise GraphQLError(f"Unsupported value: {field.value.value}")
+                    return None
             if field.name.value == "unit":
                 unit = field.value.value
         return Weight(**{unit: value})
@@ -116,12 +129,37 @@ class UUID(graphene.UUID):
     def parse_literal(node):
         try:
             return super(UUID, UUID).parse_literal(node)
-        except ValueError as e:
-            raise GraphQLError(str(e))
+        except ValueError:
+            return None
 
     @staticmethod
     def parse_value(value):
         try:
             return super(UUID, UUID).parse_value(value)
-        except ValueError as e:
-            raise GraphQLError(str(e))
+        except ValueError:
+            return None
+
+
+# The custom Date scalar is needed as the currently used graphene 2 version is not
+# supported anymore.
+# The graphene.Date scalar is raising unhandled `IndexError` for the empty string,
+# the custom implementation prevent such situation and returns `None` instead.
+# Probably might be dropped after switching to the supported graphene version.
+class Date(graphene.Date):
+    __doc__ = graphene.Date.__doc__
+
+    @staticmethod
+    def parse_value(value):
+        # The parse_value method is overridden to handle the empty string.
+        # The current graphene version returning unhandled `IndexError`.
+        if isinstance(value, str) and not value:
+            return None
+        return super(Date, Date).parse_value(value)
+
+
+class Minute(graphene.Int):
+    """The `Minute` scalar type represents number of minutes by integer value."""
+
+
+class Day(graphene.Int):
+    """The `Day` scalar type represents number of days by integer value."""

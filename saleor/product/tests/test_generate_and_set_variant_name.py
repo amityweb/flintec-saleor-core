@@ -13,7 +13,7 @@ from ..tasks import _update_variants_names
 from ..utils.variants import generate_and_set_variant_name
 
 
-@pytest.fixture()
+@pytest.fixture
 def variant_with_no_attributes(category, channel_USD):
     """Create a variant having no attributes, the same for the parent product."""
     product_type = ProductType.objects.create(
@@ -41,9 +41,7 @@ def variant_with_no_attributes(category, channel_USD):
 def test_generate_and_set_variant_name_different_attributes(
     variant_with_no_attributes, color_attribute_without_values, size_attribute
 ):
-    """Test the name generation from a given variant containing multiple attributes and
-    different input types (dropdown and multiselect).
-    """
+    """Test variant name generation with a mix of mix of (non-)selection attributes."""
 
     variant = variant_with_no_attributes
     color_attribute = color_attribute_without_values
@@ -71,8 +69,13 @@ def test_generate_and_set_variant_name_different_attributes(
     size = size_attribute.values.get(slug="big")
 
     # Associate the colors and size to variant attributes
-    associate_attribute_values_to_instance(variant, color_attribute, *tuple(colors))
-    associate_attribute_values_to_instance(variant, size_attribute, size)
+    associate_attribute_values_to_instance(
+        variant,
+        {
+            color_attribute.id: colors,
+            size_attribute.id: [size],
+        },
+    )
 
     # Generate the variant name from the attributes
     generate_and_set_variant_name(variant, variant.sku)
@@ -83,9 +86,7 @@ def test_generate_and_set_variant_name_different_attributes(
 def test_generate_and_set_variant_name_only_variant_selection_attributes(
     variant_with_no_attributes, color_attribute_without_values, size_attribute
 ):
-    """Test the name generation for a given variant containing multiple attributes
-    with input types allowed in variant selection.
-    """
+    """Test that selection attributes properly affect variant name generation."""
 
     variant = variant_with_no_attributes
     color_attribute = color_attribute_without_values
@@ -116,8 +117,13 @@ def test_generate_and_set_variant_name_only_variant_selection_attributes(
     size.save(update_fields=["sort_order"])
 
     # Associate the colors and size to variant attributes
-    associate_attribute_values_to_instance(variant, color_attribute, *tuple(colors))
-    associate_attribute_values_to_instance(variant, size_attribute, size)
+    associate_attribute_values_to_instance(
+        variant,
+        {
+            color_attribute.id: colors,
+            size_attribute.id: [size],
+        },
+    )
 
     # Generate the variant name from the attributes
     generate_and_set_variant_name(variant, variant.sku)
@@ -128,9 +134,7 @@ def test_generate_and_set_variant_name_only_variant_selection_attributes(
 def test_generate_and_set_variant_name_only_not_variant_selection_attributes(
     variant_with_no_attributes, color_attribute_without_values, file_attribute
 ):
-    """Test the name generation for a given variant containing multiple attributes
-    with input types not allowed in variant selection.
-    """
+    """Test that non-selection attributes don't affect variant name generation."""
 
     variant = variant_with_no_attributes
     color_attribute = color_attribute_without_values
@@ -160,8 +164,13 @@ def test_generate_and_set_variant_name_only_not_variant_selection_attributes(
     )
 
     # Associate the colors and size to variant attributes
-    associate_attribute_values_to_instance(variant, color_attribute, *values[:2])
-    associate_attribute_values_to_instance(variant, file_attribute, values[-1])
+    associate_attribute_values_to_instance(
+        variant,
+        {
+            color_attribute.id: values[:2],
+            file_attribute.id: [values[-1]],
+        },
+    )
 
     # Generate the variant name from the attributes
     generate_and_set_variant_name(variant, variant.sku)
@@ -170,8 +179,7 @@ def test_generate_and_set_variant_name_only_not_variant_selection_attributes(
 
 
 def test_generate_name_from_values_empty(variant_with_no_attributes):
-    """Ensure generate a variant name from a variant without any attributes assigned
-    returns an empty string."""
+    """Ensure a variant name generated from no attributes is an empty string."""
     variant = variant_with_no_attributes
     generate_and_set_variant_name(variant, variant.sku)
     variant.refresh_from_db()

@@ -1,10 +1,9 @@
 *.py[cod]
 .*
+!.devcontainer
 !.dockerignore
 !.github
 !.gitignore
-!.nvmrc
-!.pylintrc
 !.vscode
 *.log
 *.pot
@@ -19,7 +18,7 @@ dist/
 /media/
 /node_modules/
 /static/
-
+/digital_contents/
 # Environments
 .env
 .venv

@@ -8,8 +8,9 @@ def get_graphql_content_from_response(response):
 
 
 def get_graphql_content(response, *, ignore_errors: bool = False):
-    """Gets GraphQL content from the response, and optionally checks if it
-    contains any operating-related errors, eg. schema errors or lack of
+    """Extract GraphQL content from the API response.
+
+    Optionally ignore protocol-level errors, eg. schema errors or lack of
     permissions.
     """
     content = get_graphql_content_from_response(response)
@@ -29,9 +30,9 @@ def assert_no_permission(response):
 def assert_negative_positive_decimal_value(response):
     content = get_graphql_content_from_response(response)
     assert "errors" in content, content
-    assert "Value cannot be lower than 0." in content["errors"][0]["message"], content[
-        "errors"
-    ]
+    assert (
+        'Expected type "PositiveDecimal"' in content["errors"][0]["message"]
+    ), content["errors"]
 
 
 def assert_graphql_error_with_message(response, message):
@@ -43,7 +44,7 @@ def assert_graphql_error_with_message(response, message):
 def get_multipart_request_body(query, variables, file, file_name):
     """Create request body for multipart GraphQL requests.
 
-    Multipart requests are different than standard GraphQL requests, because
+    Multipart requests are different from standard GraphQL requests, because
     of additional 'operations' and 'map' keys.
     """
     return {
@@ -52,4 +53,20 @@ def get_multipart_request_body(query, variables, file, file_name):
         ),
         "map": json.dumps({file_name: ["variables.file"]}, cls=DjangoJSONEncoder),
         file_name: file,
+    }
+
+
+def get_multipart_request_body_with_multiple_files(query, variables, files, map_dict):
+    """Create request body for multipart GraphQL requests to send multiple files.
+
+    Multipart requests are different from standard GraphQL requests, because
+    of additional 'operations' and 'map' keys.
+    """
+
+    return {
+        "operations": json.dumps(
+            {"query": query, "variables": variables}, cls=DjangoJSONEncoder
+        ),
+        "map": json.dumps(map_dict, cls=DjangoJSONEncoder),
+        **{index: file for index, file in enumerate(files)},
     }

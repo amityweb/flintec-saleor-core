@@ -41,17 +41,22 @@ def shipping_zone_list():
 def test_delete_shipping_methods(
     staff_api_client, shipping_method_list, permission_manage_shipping
 ):
+    # given
     variables = {
         "ids": [
             graphene.Node.to_global_id("ShippingMethodType", method.id)
             for method in shipping_method_list
         ]
     }
+
+    # when
     response = staff_api_client.post_graphql(
         BULK_DELETE_SHIPPING_PRICE_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
 
     assert content["data"]["shippingPriceBulkDelete"]["count"] == 3
@@ -60,7 +65,10 @@ def test_delete_shipping_methods(
     ).exists()
 
 
-@mock.patch("saleor.plugins.webhook.plugin.get_webhooks_for_event")
+@mock.patch(
+    "saleor.graphql.shipping.bulk_mutations."
+    "shipping_price_bulk_delete.get_webhooks_for_event"
+)
 @mock.patch("saleor.plugins.webhook.plugin.trigger_webhooks_async")
 def test_delete_shipping_methods_trigger_multiple_webhook_events(
     mocked_webhook_trigger,
@@ -107,6 +115,7 @@ BULK_DELETE_SHIPPING_ZONE_MUTATION = """
 def test_delete_shipping_zones(
     staff_api_client, shipping_zone_list, permission_manage_shipping
 ):
+    # given
     variables = {
         "ids": [
             graphene.Node.to_global_id("ShippingZone", zone.id)
@@ -114,11 +123,14 @@ def test_delete_shipping_zones(
         ]
     }
 
+    # when
     response = staff_api_client.post_graphql(
         BULK_DELETE_SHIPPING_ZONE_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
 
     assert content["data"]["shippingZoneBulkDelete"]["count"] == 3
@@ -127,7 +139,10 @@ def test_delete_shipping_zones(
     ).exists()
 
 
-@mock.patch("saleor.plugins.webhook.plugin.get_webhooks_for_event")
+@mock.patch(
+    "saleor.graphql.shipping.bulk_mutations."
+    "shipping_zone_bulk_delete.get_webhooks_for_event"
+)
 @mock.patch("saleor.plugins.webhook.plugin.trigger_webhooks_async")
 def test_delete_shipping_zones_trigger_multiple_webhook_events(
     mocked_webhook_trigger,

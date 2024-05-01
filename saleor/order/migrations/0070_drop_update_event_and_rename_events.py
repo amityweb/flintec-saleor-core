@@ -44,14 +44,11 @@ def _move_updated_events_to_other(apps, *_args, **_kwargs):
 
     for event in cls.objects.filter(type="updated").all():
         event.type = OrderEvents.OTHER
-        event.parameters["message"] = "Order details were updated by %(user_name)s" % {
-            "user_name": event.user
-        }
+        event.parameters["message"] = f"Order details were updated by {event.user}"
         event.save(update_fields=["type", "parameters"])
 
 
 class Migration(migrations.Migration):
-
     dependencies = [("order", "0069_auto_20190225_2305")]
 
     operations = [

@@ -91,7 +91,7 @@ def test_page_type_bulk_delete_trigger_webhooks(
 
     assert not data["errors"]
     assert data["count"] == page_type_count
-    mocked_webhook_trigger.call_count == page_type_count
+    assert mocked_webhook_trigger.call_count == page_type_count
 
 
 def test_page_type_bulk_delete_by_staff_no_perm(
@@ -179,7 +179,7 @@ def test_page_type_bulk_delete_with_file_attribute(
 
     value = page_file_attribute.values.first()
     page_type.page_attributes.add(page_file_attribute)
-    associate_attribute_values_to_instance(page, page_file_attribute, value)
+    associate_attribute_values_to_instance(page, {page_file_attribute.pk: [value]})
 
     pages_pks = list(
         Page.objects.filter(page_type__in=page_type_list).values_list("pk", flat=True)

@@ -4,7 +4,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("product", "0130_create_product_description_search_vector"),
     ]
@@ -18,6 +17,7 @@ class Migration(migrations.Migration):
             setweight(
             to_tsvector('pg_catalog.english', coalesce(description_plaintext, '')), 'B'
             );
-            """
+            """,
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]

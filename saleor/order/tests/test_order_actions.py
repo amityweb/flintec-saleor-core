@@ -4,17 +4,24 @@ from unittest.mock import patch
 import pytest
 from prices import Money, TaxedMoney
 
+from ...channel import MarkAsPaidStrategy
 from ...giftcard import GiftCardEvents
 from ...giftcard.models import GiftCard, GiftCardEvent
 from ...order.fetch import OrderLineInfo, fetch_order_info
-from ...payment import ChargeStatus, PaymentError, TransactionKind
+from ...payment import ChargeStatus, PaymentError, TransactionEventType, TransactionKind
 from ...payment.models import Payment
 from ...plugins.manager import get_plugins_manager
 from ...product.models import DigitalContent
 from ...product.tests.utils import create_image
 from ...tests.utils import flush_post_commit_hooks
 from ...warehouse.models import Allocation, Stock
-from .. import FulfillmentStatus, OrderEvents, OrderStatus
+from .. import (
+    FulfillmentStatus,
+    OrderAuthorizeStatus,
+    OrderChargeStatus,
+    OrderEvents,
+    OrderStatus,
+)
 from ..actions import (
     automatically_fulfill_digital_lines,
     cancel_fulfillment,
@@ -22,14 +29,17 @@ from ..actions import (
     clean_mark_order_as_paid,
     fulfill_order_lines,
     handle_fully_paid_order,
-    mark_order_as_paid,
+    mark_order_as_paid_with_payment,
+    mark_order_as_paid_with_transaction,
     order_refunded,
+    order_transaction_updated,
 )
 from ..models import Fulfillment, OrderLine
 from ..notifications import (
     send_fulfillment_confirmation_to_customer,
     send_payment_confirmation,
 )
+from ..utils import updates_amounts_for_order
 
 
 @pytest.fixture
@@ -50,7 +60,7 @@ def order_with_digital_line(order, digital_content, stock, site_settings):
     product = variant.product
     channel = order.channel
     variant_channel_listing = variant.channel_listings.get(channel=channel)
-    net = variant.get_price(product, [], channel, variant_channel_listing, None)
+    net = variant.get_price(variant_channel_listing)
     gross = Money(amount=net.amount * Decimal(1.23), currency=net.currency)
     unit_price = TaxedMoney(net=net, gross=gross)
     line = order.lines.create(
@@ -79,7 +89,9 @@ def order_with_digital_line(order, digital_content, stock, site_settings):
 @patch(
     "saleor.order.actions.send_payment_confirmation", wraps=send_payment_confirmation
 )
+@patch("saleor.plugins.manager.PluginsManager.fulfillment_created")
 def test_handle_fully_paid_order_digital_lines(
+    mock_fulfillment_created,
     mock_send_payment_confirmation,
     send_fulfillment_confirmation_to_customer,
     order_with_digital_line,
@@ -91,7 +103,7 @@ def test_handle_fully_paid_order_digital_lines(
     order.redirect_url = redirect_url
     order.save()
     order_info = fetch_order_info(order)
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
 
     handle_fully_paid_order(manager, order_info)
 
@@ -107,11 +119,12 @@ def test_handle_fully_paid_order_digital_lines(
 
     order.refresh_from_db()
     assert order.status == OrderStatus.FULFILLED
+    mock_fulfillment_created.assert_called_once_with(fulfillment)
 
 
 @patch("saleor.order.actions.send_payment_confirmation")
 def test_handle_fully_paid_order(mock_send_payment_confirmation, order):
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
 
     order.payments.add(Payment.objects.create())
     order_info = fetch_order_info(order)
@@ -128,7 +141,7 @@ def test_handle_fully_paid_order(mock_send_payment_confirmation, order):
 def test_handle_fully_paid_order_no_email(mock_send_payment_confirmation, order):
     order.user = None
     order.user_email = ""
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     order_info = fetch_order_info(order)
 
     handle_fully_paid_order(manager, order_info)
@@ -147,11 +160,11 @@ def test_handle_fully_paid_order_gift_cards_created(
     non_shippable_gift_card_product,
     shippable_gift_card_product,
 ):
-    """Ensure the non shippable gift card are fulfilled when the flag for automatic
-    fulfillment non shippable gift card is set."""
+    """Test that digital gift cards are issued when automatic fulfillment is enabled."""
     # given
-    site_settings.automatically_fulfill_non_shippable_gift_card = True
-    site_settings.save(update_fields=["automatically_fulfill_non_shippable_gift_card"])
+    channel = order_with_lines.channel
+    channel.automatically_fulfill_non_shippable_gift_card = True
+    channel.save()
 
     order = order_with_lines
 
@@ -177,7 +190,7 @@ def test_handle_fully_paid_order_gift_cards_created(
         ["variant", "is_gift_card", "is_shipping_required", "quantity"],
     )
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
 
     order.payments.add(Payment.objects.create())
     order_info = fetch_order_info(order)
@@ -218,11 +231,11 @@ def test_handle_fully_paid_order_gift_cards_not_created(
     non_shippable_gift_card_product,
     shippable_gift_card_product,
 ):
-    """Ensure the non shippable gift card are not fulfilled when the flag for
-    automatic fulfillment non shippable gift card is not set."""
+    """Ensure digital gift cards are not issued when automatic fulfillment is disabled."""
     # given
-    site_settings.automatically_fulfill_non_shippable_gift_card = False
-    site_settings.save(update_fields=["automatically_fulfill_non_shippable_gift_card"])
+    channel = order_with_lines.channel
+    channel.automatically_fulfill_non_shippable_gift_card = False
+    channel.save()
 
     order = order_with_lines
 
@@ -248,7 +261,7 @@ def test_handle_fully_paid_order_gift_cards_not_created(
         ["variant", "is_gift_card", "is_shipping_required", "quantity"],
     )
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
 
     order.payments.add(Payment.objects.create())
     order_info = fetch_order_info(order)
@@ -267,9 +280,9 @@ def test_handle_fully_paid_order_gift_cards_not_created(
     send_notification_mock.assert_not_called
 
 
-def test_mark_as_paid(admin_user, draft_order):
-    manager = get_plugins_manager()
-    mark_order_as_paid(draft_order, admin_user, None, manager)
+def test_mark_as_paid_with_payment(admin_user, draft_order):
+    manager = get_plugins_manager(allow_replica=False)
+    mark_order_as_paid_with_payment(draft_order, admin_user, None, manager)
     payment = draft_order.payments.last()
     assert payment.charge_status == ChargeStatus.FULLY_CHARGED
     assert payment.captured_amount == draft_order.total.gross.amount
@@ -279,10 +292,10 @@ def test_mark_as_paid(admin_user, draft_order):
     assert transactions[0].kind == TransactionKind.EXTERNAL
 
 
-def test_mark_as_paid_with_external_reference(admin_user, draft_order):
+def test_mark_as_paid_with_external_reference_with_payment(admin_user, draft_order):
     external_reference = "transaction_id"
-    manager = get_plugins_manager()
-    mark_order_as_paid(
+    manager = get_plugins_manager(allow_replica=False)
+    mark_order_as_paid_with_payment(
         draft_order, admin_user, None, manager, external_reference=external_reference
     )
     payment = draft_order.payments.last()
@@ -300,22 +313,72 @@ def test_mark_as_paid_no_billing_address(admin_user, draft_order):
     draft_order.billing_address = None
     draft_order.save()
 
-    manager = get_plugins_manager()
-    with pytest.raises(Exception):
-        mark_order_as_paid(draft_order, admin_user, None, manager)
+    manager = get_plugins_manager(allow_replica=False)
+    with pytest.raises(PaymentError, match="Order does not have a billing address."):
+        mark_order_as_paid_with_payment(draft_order, admin_user, None, manager)
 
 
 def test_clean_mark_order_as_paid(payment_txn_preauth):
     order = payment_txn_preauth.order
-    with pytest.raises(PaymentError):
+    with pytest.raises(
+        PaymentError, match="Orders with payments can not be manually marked as paid."
+    ):
         clean_mark_order_as_paid(order)
+
+
+def test_mark_as_paid_with_transaction(admin_user, draft_order):
+    # given
+    manager = get_plugins_manager(allow_replica=False)
+    channel = draft_order.channel
+    channel.order_mark_as_paid_strategy = MarkAsPaidStrategy.TRANSACTION_FLOW
+    channel.save(update_fields=["order_mark_as_paid_strategy"])
+
+    # when
+    mark_order_as_paid_with_transaction(draft_order, admin_user, None, manager)
+
+    # then
+    draft_order.refresh_from_db()
+    assert not draft_order.payments.exists()
+    transaction = draft_order.payment_transactions.get()
+
+    assert transaction.charged_value == draft_order.total.gross.amount
+    assert draft_order.authorize_status == OrderAuthorizeStatus.FULL
+    assert draft_order.charge_status == OrderChargeStatus.FULL
+    assert draft_order.total_charged.amount == transaction.charged_value
+
+    transaction_event = transaction.events.filter(
+        type=TransactionEventType.CHARGE_SUCCESS
+    ).get()
+    assert transaction_event.amount_value == draft_order.total.gross.amount
+    assert transaction_event.type == TransactionEventType.CHARGE_SUCCESS
+
+
+def test_mark_as_paid_with_external_reference_with_transaction(admin_user, draft_order):
+    # given
+    external_reference = "transaction_id"
+    manager = get_plugins_manager(allow_replica=False)
+    channel = draft_order.channel
+    channel.order_mark_as_paid_strategy = MarkAsPaidStrategy.TRANSACTION_FLOW
+    channel.save(update_fields=["order_mark_as_paid_strategy"])
+
+    # when
+    mark_order_as_paid_with_transaction(
+        draft_order, admin_user, None, manager, external_reference=external_reference
+    )
+
+    # then
+    assert not draft_order.payments.exists()
+    transaction = draft_order.payment_transactions.get()
+    assert transaction.psp_reference == external_reference
 
 
 def test_cancel_fulfillment(fulfilled_order, warehouse):
     fulfillment = fulfilled_order.fulfillments.first()
     line_1, line_2 = fulfillment.lines.all()
 
-    cancel_fulfillment(fulfillment, None, None, warehouse, get_plugins_manager())
+    cancel_fulfillment(
+        fulfillment, None, None, warehouse, get_plugins_manager(allow_replica=False)
+    )
 
     fulfillment.refresh_from_db()
     fulfilled_order.refresh_from_db()
@@ -333,7 +396,9 @@ def test_cancel_fulfillment_variant_witout_inventory_tracking(
     stock = line.order_line.variant.stocks.get()
     stock_quantity_before = stock.quantity
 
-    cancel_fulfillment(fulfillment, None, None, warehouse, get_plugins_manager())
+    cancel_fulfillment(
+        fulfillment, None, None, warehouse, get_plugins_manager(allow_replica=False)
+    )
 
     fulfillment.refresh_from_db()
     line.refresh_from_db()
@@ -351,7 +416,7 @@ def test_cancel_order(
 ):
     # given
     order = fulfilled_order_with_all_cancelled_fulfillments
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
 
     assert Allocation.objects.filter(
         order_line__order=order, quantity_allocated__gt=0
@@ -375,9 +440,13 @@ def test_cancel_order(
     )
 
 
+@patch("saleor.plugins.manager.PluginsManager.order_refunded")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_refunded")
 @patch("saleor.order.actions.send_order_refunded_confirmation")
 def test_order_refunded_by_user(
     send_order_refunded_confirmation_mock,
+    order_fully_refunded_mock,
+    order_refunded_mock,
     order,
     checkout_with_item,
 ):
@@ -389,21 +458,28 @@ def test_order_refunded_by_user(
     app = None
 
     # when
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     order_refunded(order, order.user, app, amount, payment, manager)
 
     # then
+    flush_post_commit_hooks()
     order_event = order.events.last()
     assert order_event.type == OrderEvents.PAYMENT_REFUNDED
 
     send_order_refunded_confirmation_mock.assert_called_once_with(
-        order, order.user, None, amount, payment.currency, manager
+        order, order.user, None, amount, order.currency, manager
     )
+    order_fully_refunded_mock.assert_called_once_with(order)
+    order_refunded_mock.assert_called_once_with(order)
 
 
+@patch("saleor.plugins.manager.PluginsManager.order_refunded")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_refunded")
 @patch("saleor.order.actions.send_order_refunded_confirmation")
 def test_order_refunded_by_app(
     send_order_refunded_confirmation_mock,
+    order_fully_refunded_mock,
+    order_refunded_mock,
     order,
     checkout_with_item,
     app,
@@ -415,16 +491,19 @@ def test_order_refunded_by_app(
     amount = order.total.gross.amount
 
     # when
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     order_refunded(order, None, app, amount, payment, manager)
 
     # then
+    flush_post_commit_hooks()
     order_event = order.events.last()
     assert order_event.type == OrderEvents.PAYMENT_REFUNDED
 
     send_order_refunded_confirmation_mock.assert_called_once_with(
-        order, None, app, amount, payment.currency, manager
+        order, None, app, amount, order.currency, manager
     )
+    order_fully_refunded_mock.assert_called_once_with(order)
+    order_refunded_mock.assert_called_once_with(order)
 
 
 def test_fulfill_order_lines(order_with_lines):
@@ -444,7 +523,7 @@ def test_fulfill_order_lines(order_with_lines):
                 warehouse_pk=stock.warehouse.pk,
             )
         ],
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     stock.refresh_from_db()
@@ -483,7 +562,7 @@ def test_fulfill_order_lines_multiple_lines(order_with_lines):
                 warehouse_pk=stock_2.warehouse.pk,
             ),
         ],
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     stock_1.refresh_from_db()
@@ -506,7 +585,8 @@ def test_fulfill_order_lines_with_variant_deleted(order_with_lines):
     line.refresh_from_db()
 
     fulfill_order_lines(
-        [OrderLineInfo(line=line, quantity=line.quantity)], get_plugins_manager()
+        [OrderLineInfo(line=line, quantity=line.quantity)],
+        get_plugins_manager(allow_replica=False),
     )
 
 
@@ -531,7 +611,7 @@ def test_fulfill_order_lines_without_inventory_tracking(order_with_lines):
                 warehouse_pk=stock.warehouse.pk,
             )
         ],
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     stock.refresh_from_db()
@@ -541,8 +621,13 @@ def test_fulfill_order_lines_without_inventory_tracking(order_with_lines):
 
 @patch("saleor.order.actions.send_fulfillment_confirmation_to_customer")
 @patch("saleor.order.utils.get_default_digital_content_settings")
+@patch("saleor.plugins.manager.PluginsManager.fulfillment_created")
 def test_fulfill_digital_lines(
-    mock_digital_settings, mock_email_fulfillment, order_with_lines, media_root
+    mock_fulfillment_created,
+    mock_digital_settings,
+    mock_email_fulfillment,
+    order_with_lines,
+    media_root,
 ):
     mock_digital_settings.return_value = {"automatic_fulfillment": True}
     line = order_with_lines.lines.all()[0]
@@ -565,7 +650,7 @@ def test_fulfill_digital_lines(
 
     order_with_lines.refresh_from_db()
     order_info = fetch_order_info(order_with_lines)
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
 
     automatically_fulfill_digital_lines(order_info, manager)
 
@@ -576,3 +661,454 @@ def test_fulfill_digital_lines(
     assert fulfillment_lines.count() == 1
     assert line.digital_content_url
     assert mock_email_fulfillment.called
+    mock_fulfillment_created.assert_called_once_with(fulfillment)
+
+
+@patch("saleor.order.actions.send_fulfillment_confirmation_to_customer")
+@patch("saleor.order.utils.get_default_digital_content_settings")
+@patch("saleor.plugins.manager.PluginsManager.fulfillment_created")
+def test_fulfill_digital_lines_no_allocation(
+    mock_fulfillment_created,
+    mock_digital_settings,
+    mock_email_fulfillment,
+    order_with_lines,
+    media_root,
+):
+    # given
+    mock_digital_settings.return_value = {"automatic_fulfillment": True}
+    line = order_with_lines.lines.all()[0]
+
+    image_file, image_name = create_image()
+    variant = line.variant
+
+    product_type = variant.product.product_type
+    product_type.is_digital = True
+    product_type.is_shipping_required = False
+    product_type.save(update_fields=["is_digital", "is_shipping_required"])
+
+    digital_content = DigitalContent.objects.create(
+        content_file=image_file, product_variant=variant, use_default_settings=True
+    )
+
+    variant.digital_content = digital_content
+    variant.track_inventory = False
+    variant.save()
+
+    line.is_shipping_required = False
+    line.allocations.all().delete()
+    line.save()
+
+    order_with_lines.refresh_from_db()
+    order_info = fetch_order_info(order_with_lines)
+    manager = get_plugins_manager(allow_replica=False)
+
+    # when
+    automatically_fulfill_digital_lines(order_info, manager)
+
+    # then
+    line.refresh_from_db()
+    fulfillment = Fulfillment.objects.get(order=order_with_lines)
+    fulfillment_lines = fulfillment.lines.all()
+
+    assert fulfillment_lines.count() == 1
+    assert line.digital_content_url
+    assert mock_email_fulfillment.called
+    mock_fulfillment_created.assert_called_once_with(fulfillment)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_order_fully_paid(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, charged_value=order_with_lines.total.gross.amount
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    order_fully_paid.assert_called_once_with(order_with_lines)
+    order_updated.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_order_partially_paid(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, charged_value=Decimal("10")
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_paid.called
+    order_updated.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_order_partially_paid_and_multiple_transactions(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item_generator(
+        order_id=order_with_lines.pk, charged_value=Decimal("10")
+    )
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, charged_value=Decimal("5")
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_paid.called
+    order_updated.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_with_the_same_transaction_charged_amount(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    charged_value = Decimal("5")
+
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, charged_value=charged_value
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=charged_value,
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_paid.called
+    assert not order_updated.called
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_order_authorized(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk,
+        authorized_value=order_with_lines.total.gross.amount,
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_paid.called
+    order_updated.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_order_partially_authorized_and_multiple_transactions(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item_generator(
+        order_id=order_with_lines.pk, authorized_value=Decimal("10")
+    )
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, authorized_value=Decimal("5")
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_paid.called
+    order_updated.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_updated")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_paid")
+def test_order_transaction_updated_with_the_same_transaction_authorized_amount(
+    order_fully_paid, order_updated, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    authorized_value = Decimal("5")
+
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, authorized_value=authorized_value
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=authorized_value,
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_paid.called
+    assert not order_updated.called
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_refunded")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_refunded")
+def test_order_transaction_updated_order_fully_refunded(
+    order_fully_refunded, order_refunded, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, refunded_value=order_with_lines.total.gross.amount
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    order_fully_refunded.assert_called_once_with(order_with_lines)
+    order_refunded.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_refunded")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_refunded")
+def test_order_transaction_updated_order_partially_refunded(
+    order_fully_refunded, order_refunded, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk, refunded_value=Decimal(10)
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    assert not order_fully_refunded.called
+    order_refunded.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_refunded")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_refunded")
+def test_order_transaction_updated_order_fully_refunded_and_multiple_transactions(
+    order_fully_refunded, order_refunded, order_with_lines, transaction_item_generator
+):
+    # given
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item_generator(
+        order_id=order_with_lines.pk, refunded_value=Decimal("10")
+    )
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk,
+        refunded_value=order_with_lines.total.gross.amount - Decimal("10"),
+    )
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    order_fully_refunded.assert_called_once_with(order_with_lines)
+    order_refunded.assert_called_once_with(order_with_lines)
+
+
+@patch("saleor.plugins.manager.PluginsManager.order_refunded")
+@patch("saleor.plugins.manager.PluginsManager.order_fully_refunded")
+def test_order_transaction_updated_order_fully_refunded_with_transaction_and_payment(
+    order_fully_refunded,
+    order_refunded,
+    order_with_lines,
+    transaction_item_generator,
+    payment_dummy,
+):
+    # given
+    payment = payment_dummy
+    payment.order = order_with_lines
+    payment.charge_status = ChargeStatus.PARTIALLY_REFUNDED
+    payment.is_active = True
+    payment.save()
+
+    payment.transactions.create(
+        amount=Decimal("10"),
+        currency=payment.currency,
+        kind=TransactionKind.REFUND,
+        gateway_response={},
+        is_success=True,
+    )
+
+    order_info = fetch_order_info(order_with_lines)
+    transaction_item = transaction_item_generator(
+        order_id=order_with_lines.pk,
+        refunded_value=order_with_lines.total.gross.amount - Decimal("10"),
+    )
+
+    manager = get_plugins_manager(allow_replica=False)
+    updates_amounts_for_order(
+        order_with_lines,
+    )
+
+    # when
+    order_transaction_updated(
+        order_info=order_info,
+        transaction_item=transaction_item,
+        manager=manager,
+        user=None,
+        app=None,
+        previous_authorized_value=Decimal(0),
+        previous_charged_value=Decimal(0),
+        previous_refunded_value=Decimal(0),
+    )
+
+    # then
+    flush_post_commit_hooks()
+    order_refunded.assert_called_once_with(order_with_lines)
+    order_fully_refunded.assert_called_once_with(order_with_lines)

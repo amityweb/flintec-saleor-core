@@ -1,12 +1,20 @@
 import sys
 from collections import defaultdict
-from typing import DefaultDict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import (
+    TYPE_CHECKING,
+    Optional,
+    TypedDict,
+    Union,
+)
 from uuid import UUID
 
-from django.db.models import Exists, OuterRef, Q
+from django.contrib.sites.models import Site
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.aggregates import Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django_stubs_ext import WithAnnotations
 
 from ...channel.models import Channel
 from ...product.models import ProductVariantChannelListing
@@ -21,9 +29,21 @@ from ...warehouse.models import (
 )
 from ...warehouse.reservations import is_reservation_enabled
 from ..core.dataloaders import DataLoader
+from ..site.dataloaders import get_site_promise
+
+if TYPE_CHECKING:
+    # https://github.com/typeddjango/django-stubs/issues/719
+
+    class WithAvailableQuantity(TypedDict):
+        available_quantity: int
+
+    StockWithAvailableQuantity = WithAnnotations[Stock, WithAvailableQuantity]
+else:
+    StockWithAvailableQuantity = Stock
+
 
 CountryCode = Optional[str]
-VariantIdCountryCodeChannelSlug = Tuple[int, CountryCode, str]
+VariantIdCountryCodeChannelSlug = tuple[int, CountryCode, str]
 
 
 class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
@@ -38,12 +58,12 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
 
     context_key = "available_quantity_by_productvariant_and_country"
 
-    def batch_load(self, keys):
+    def batch_load(self, keys: Iterable[VariantIdCountryCodeChannelSlug]) -> list[int]:
         # Split the list of keys by country first. A typical query will only touch
-        # a handful of unique countries but may access thousands of product variants
+        # a handful of unique countries but may access thousands of product variants,
         # so it's cheaper to execute one query per country.
-        variants_by_country_and_channel: DefaultDict[
-            Tuple[CountryCode, str], List[int]
+        variants_by_country_and_channel: defaultdict[
+            tuple[CountryCode, str], list[int]
         ] = defaultdict(list)
         for variant_id, country_code, channel_slug in keys:
             variants_by_country_and_channel[(country_code, channel_slug)].append(
@@ -51,18 +71,22 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
             )
 
         # For each country code execute a single query for all product variants.
-        quantity_by_variant_and_country: DefaultDict[
+        quantity_by_variant_and_country: defaultdict[
             VariantIdCountryCodeChannelSlug, int
         ] = defaultdict(int)
-        for key, variant_ids in variants_by_country_and_channel.items():
-            country_code, channel_slug = key
-            quantities = self.batch_load_quantities_by_country(
-                country_code, channel_slug, variant_ids
-            )
-            for variant_id, quantity in quantities:
-                quantity_by_variant_and_country[
-                    (variant_id, country_code, channel_slug)
-                ] = max(0, quantity)
+
+        site = None
+        if variants_by_country_and_channel:
+            site = get_site_promise(self.context).get()
+            for key, variant_ids in variants_by_country_and_channel.items():
+                country_code, channel_slug = key
+                quantities = self.batch_load_quantities_by_country(
+                    country_code, channel_slug, variant_ids, site
+                )
+                for variant_id, quantity in quantities:
+                    quantity_by_variant_and_country[
+                        (variant_id, country_code, channel_slug)
+                    ] = max(0, quantity)
 
         return [quantity_by_variant_and_country[key] for key in keys]
 
@@ -71,11 +95,14 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
         country_code: Optional[CountryCode],
         channel_slug: Optional[str],
         variant_ids: Iterable[int],
-    ) -> Iterable[Tuple[int, int]]:
+        site: Site,
+    ) -> Iterable[tuple[int, int]]:
         # get stocks only for warehouses assigned to the shipping zones
         # that are available in the given channel
-        stocks = Stock.objects.using(self.database_connection_name).filter(
-            product_variant_id__in=variant_ids
+        stocks = (
+            Stock.objects.all()
+            .using(self.database_connection_name)
+            .filter(product_variant_id__in=variant_ids)
         )
 
         warehouse_shipping_zones = self.get_warehouse_shipping_zones(
@@ -90,37 +117,46 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
             warehouse_shipping_zones_map[warehouse_shipping_zone.warehouse_id].append(
                 warehouse_shipping_zone.shippingzone_id
             )
+<<<<<<< HEAD
+
+        stocks = stocks.filter(
+            Q(warehouse_id__in=warehouse_shipping_zones_map.keys())
+            | Q(warehouse_id__in=cc_warehouses.values("id"))
+        )
+=======
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 
         stocks = stocks.filter(
             Q(warehouse_id__in=warehouse_shipping_zones_map.keys())
             | Q(warehouse_id__in=cc_warehouses.values("id"))
         )
 
-        stocks = stocks.annotate_available_quantity()
+        stocks = stocks.annotate_available_quantity().order_by("pk")
 
         stocks_reservations = self.prepare_stocks_reservations_map(variant_ids)
 
         # A single country code (or a missing country code) can return results from
-        # multiple shipping zones. We want to combine all quantities within a single
-        # zone and then find out which zone contains the highest total.
+        # multiple shipping zones. We want to prepare warehouse by shipping zone map
+        # and quantity by warehouse map. To be able to calculate max quantity available
+        # in any shipping zones combination without duplicating warehouse quantity.
         (
-            quantity_by_shipping_zone_by_variant,
+            warehouse_ids_by_shipping_zone_by_variant,
             variants_with_global_cc_warehouses,
-        ) = self.prepare_quantity_by_shipping_zone_and_variant_map(
+            available_quantity_by_warehouse_id_and_variant_id,
+        ) = self.prepare_warehouse_ids_by_shipping_zone_and_variant_map(
             stocks, stocks_reservations, warehouse_shipping_zones_map, cc_warehouses
         )
 
         quantity_map = self.prepare_quantity_map(
             country_code,
-            quantity_by_shipping_zone_by_variant,
+            warehouse_ids_by_shipping_zone_by_variant,
             variants_with_global_cc_warehouses,
+            available_quantity_by_warehouse_id_and_variant_id,
         )
 
         # Return the quantities after capping them at the maximum quantity allowed in
         # checkout. This prevent users from tracking the store's precise stock levels.
-        global_quantity_limit = (
-            self.context.site.settings.limit_quantity_per_checkout  # type: ignore
-        )
+        global_quantity_limit = site.settings.limit_quantity_per_checkout
         return [
             (
                 variant_id,
@@ -131,7 +167,7 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
 
     def get_warehouse_shipping_zones(self, country_code, channel_slug):
         """Get the WarehouseShippingZone instances for a given channel and country."""
-        WarehouseShippingZone = Warehouse.shipping_zones.through  # type: ignore
+        WarehouseShippingZone = Warehouse.shipping_zones.through
         warehouse_shipping_zones = WarehouseShippingZone.objects.using(
             self.database_connection_name
         ).all()
@@ -146,8 +182,8 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
                     Exists(shipping_zones.filter(pk=OuterRef("shippingzone_id")))
                 )
             if channel_slug:
-                ShippingZoneChannel = Channel.shipping_zones.through  # type: ignore
-                WarehouseChannel = Channel.warehouses.through  # type: ignore
+                ShippingZoneChannel = Channel.shipping_zones.through
+                WarehouseChannel = Channel.warehouses.through
                 channels = (
                     Channel.objects.using(self.database_connection_name)
                     .filter(slug=channel_slug)
@@ -186,7 +222,7 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
                 .filter(slug=channel_slug)
                 .values("pk")
             )
-            WarehouseChannel = Channel.warehouses.through  # type: ignore
+            WarehouseChannel = Channel.warehouses.through
             warehouse_channels = (
                 WarehouseChannel.objects.using(self.database_connection_name)
                 .filter(
@@ -194,7 +230,7 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
                 )
                 .values("warehouse_id")
             )
-            warehouses = Warehouse.objects.filter(
+            warehouses = Warehouse.objects.using(self.database_connection_name).filter(
                 Exists(warehouse_channels.filter(warehouse_id=OuterRef("id"))),
                 click_and_collect_option__in=[
                     WarehouseClickAndCollectOption.LOCAL_STOCK,
@@ -206,7 +242,8 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
     def prepare_stocks_reservations_map(self, variant_ids):
         """Prepare stock id to quantity reserved map for provided variant ids."""
         stocks_reservations = defaultdict(int)
-        if is_reservation_enabled(self.context.site.settings):  # type: ignore
+        site = get_site_promise(self.context).get()
+        if is_reservation_enabled(site.settings):
             # Can't do second annotation on same queryset because it made
             # available_quantity annotated value incorrect thanks to how
             # Django's ORM builds SQLs with annotations
@@ -214,21 +251,28 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
                 Stock.objects.using(self.database_connection_name)
                 .filter(product_variant_id__in=variant_ids)
                 .annotate_reserved_quantity()
+                .order_by("pk")
                 .values_list("id", "reserved_quantity")
             )
             for stock_id, quantity_reserved in reservations_qs:
                 stocks_reservations[stock_id] = quantity_reserved
         return stocks_reservations
 
-    def prepare_quantity_by_shipping_zone_and_variant_map(
-        self, stocks, stocks_reservations, warehouse_shipping_zones_map, cc_warehouses
+    def prepare_warehouse_ids_by_shipping_zone_and_variant_map(
+        self,
+        stocks: QuerySet[StockWithAvailableQuantity],
+        stocks_reservations,
+        warehouse_shipping_zones_map,
+        cc_warehouses,
     ):
         """Combine all quantities within a single zone.
 
-        Prepare the map in the following format:
+        Prepare `warehouse_ids_by_shipping_zone_by_variant` map in the following format:
             {
                 variant_id: {
-                    shipping_zone_id/warehouse_id: quantity
+                    shipping_zone_id/warehouse_id: [
+                        warehouse_id
+                    ]
                 }
             }
 
@@ -237,10 +281,13 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
         as a magic single-warehouse shipping zone.
         """
         cc_warehouses_in_bulk = cc_warehouses.in_bulk()
-        quantity_by_shipping_zone_by_variant: DefaultDict[
-            int, DefaultDict[int, int]
-        ] = defaultdict(lambda: defaultdict(int))
+        warehouse_ids_by_shipping_zone_by_variant: defaultdict[
+            int, defaultdict[Union[int, UUID], list[UUID]]
+        ] = defaultdict(lambda: defaultdict(list))
         variants_with_global_cc_warehouses = []
+        available_quantity_by_warehouse_id_and_variant_id: defaultdict[
+            UUID, dict[int, int]
+        ] = defaultdict(lambda: defaultdict(int))
         for stock in stocks:
             reserved_quantity = stocks_reservations[stock.id]
             quantity = stock.available_quantity - reserved_quantity
@@ -250,31 +297,39 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
                 quantity = max(0, quantity)
             variant_id = stock.product_variant_id
             warehouse_id = stock.warehouse_id
+            available_quantity_by_warehouse_id_and_variant_id[warehouse_id][
+                variant_id
+            ] += quantity
             if shipping_zone_ids := warehouse_shipping_zones_map[warehouse_id]:
                 for shipping_zone_id in shipping_zone_ids:
-                    quantity_by_shipping_zone_by_variant[variant_id][
+                    warehouse_ids_by_shipping_zone_by_variant[variant_id][
                         shipping_zone_id
-                    ] += quantity
+                    ].append(warehouse_id)
             else:
                 cc_option = cc_warehouses_in_bulk[warehouse_id].click_and_collect_option
                 # every stock of a collection point warehouse should treat as a magic
                 # single-warehouse shipping zone
-                quantity_by_shipping_zone_by_variant[variant_id][
+                warehouse_ids_by_shipping_zone_by_variant[variant_id][warehouse_id] = [
                     warehouse_id
-                ] = quantity
+                ]
                 # in case of global warehouses the quantity available will be the sum
                 # of the available quantity for that variant from all stocks,
                 # so we need to keep information for which variant there is a warehouse
                 # with the global stock
                 if cc_option == WarehouseClickAndCollectOption.ALL_WAREHOUSES:
                     variants_with_global_cc_warehouses.append(variant_id)
-        return quantity_by_shipping_zone_by_variant, variants_with_global_cc_warehouses
+        return (
+            warehouse_ids_by_shipping_zone_by_variant,
+            variants_with_global_cc_warehouses,
+            available_quantity_by_warehouse_id_and_variant_id,
+        )
 
     def prepare_quantity_map(
         self,
         country_code,
-        quantity_by_shipping_zone_by_product_variant,
+        warehouse_ids_by_shipping_zone_by_variant,
         variants_with_global_cc_warehouses,
+        available_quantity_by_warehouse_id_and_variant_id,
     ):
         """Prepare the variant id to quantity map.
 
@@ -289,19 +344,38 @@ class AvailableQuantityByProductVariantIdCountryCodeAndChannelSlugLoader(
         is the sum of the available quantities from all stocks that passed the country
         or channel conditions.
         """
-        quantity_map: DefaultDict[int, int] = defaultdict(int)
+        quantity_map: defaultdict[int, int] = defaultdict(int)
         for (
             variant_id,
-            quantity_by_shipping_zone,
-        ) in quantity_by_shipping_zone_by_product_variant.items():
-            quantity_values = quantity_by_shipping_zone.values()
+            warehouse_ids_shipping_zone,
+        ) in warehouse_ids_by_shipping_zone_by_variant.items():
             if country_code or variant_id in variants_with_global_cc_warehouses:
+                used_warehouse_ids = []
+                for warehouse_ids in warehouse_ids_shipping_zone.values():
+                    used_warehouse_ids.extend(warehouse_ids)
+                used_warehouse_ids = set(used_warehouse_ids)
                 # When country code is known or the global collection point warehouse
                 # for this variant exists, return the sum of quantities from all
                 # shipping zones supporting given country.
-                quantity_map[variant_id] = sum(quantity_values)
+                quantity = 0
+                for warehouse_id in used_warehouse_ids:
+                    quantity += available_quantity_by_warehouse_id_and_variant_id[
+                        warehouse_id
+                    ][variant_id]
+                quantity_map[variant_id] = quantity
             else:
                 # When country code is unknown, return the highest known quantity.
+                quantity_values = []
+                for (
+                    warehouse_ids_per_shipping_zones
+                ) in warehouse_ids_shipping_zone.values():
+                    quantity = 0
+                    for warehouse_id in warehouse_ids_per_shipping_zones:
+                        quantity += available_quantity_by_warehouse_id_and_variant_id[
+                            warehouse_id
+                        ][variant_id]
+                    quantity_values.append(quantity)
+
                 quantity_map[variant_id] = max(quantity_values)
 
         return quantity_map
@@ -322,8 +396,8 @@ class StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
         # Split the list of keys by country first. A typical query will only touch
         # a handful of unique countries but may access thousands of product variants
         # so it's cheaper to execute one query per country.
-        variants_by_country_and_channel: DefaultDict[
-            CountryCode, List[int]
+        variants_by_country_and_channel: defaultdict[
+            tuple[CountryCode, str], list[int]
         ] = defaultdict(list)
         for variant_id, country_code, channel_slug in keys:
             variants_by_country_and_channel[(country_code, channel_slug)].append(
@@ -331,8 +405,8 @@ class StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
             )
 
         # For each country code execute a single query for all product variants.
-        stocks_by_variant_and_country: DefaultDict[
-            VariantIdCountryCodeChannelSlug, Iterable[Stock]
+        stocks_by_variant_and_country: defaultdict[
+            VariantIdCountryCodeChannelSlug, list[Stock]
         ] = defaultdict(list)
         for key, variant_ids in variants_by_country_and_channel.items():
             country_code, channel_slug = key
@@ -351,9 +425,13 @@ class StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
         country_code: Optional[CountryCode],
         channel_slug: Optional[str],
         variant_ids: Iterable[int],
-    ) -> Iterable[Tuple[int, List[Stock]]]:
-        stocks = Stock.objects.using(self.database_connection_name).filter(
-            product_variant_id__in=variant_ids
+    ) -> Iterable[tuple[int, list[Stock]]]:
+        # convert to set to not return the same stocks for the same variant twice
+        variant_ids_set = set(variant_ids)
+        stocks = (
+            Stock.objects.all()
+            .using(self.database_connection_name)
+            .filter(product_variant_id__in=variant_ids_set)
         )
         if country_code:
             stocks = stocks.filter(
@@ -375,9 +453,9 @@ class StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
                     ],
                 )
             )
-        stocks = stocks.annotate_available_quantity()
+        stocks = stocks.annotate_available_quantity().order_by("pk")
 
-        stocks_by_variant_id_map: DefaultDict[int, List[Stock]] = defaultdict(list)
+        stocks_by_variant_id_map: defaultdict[int, list[Stock]] = defaultdict(list)
         for stock in stocks:
             stocks_by_variant_id_map[stock.product_variant_id].append(stock)
 
@@ -386,7 +464,7 @@ class StocksWithAvailableQuantityByProductVariantIdCountryCodeAndChannelLoader(
                 variant_id,
                 stocks_by_variant_id_map[variant_id],
             )
-            for variant_id in variant_ids
+            for variant_id in variant_ids_set
         ]
 
 
@@ -433,7 +511,7 @@ class ActiveReservationsByCheckoutLineIdLoader(DataLoader):
             Reservation.objects.using(self.database_connection_name)
             .filter(checkout_line_id__in=keys)
             .not_expired()
-        )  # type: ignore
+        )
         for reservation in queryset:
             reservations_by_checkout_line[reservation.checkout_line_id].append(
                 reservation
@@ -442,7 +520,7 @@ class ActiveReservationsByCheckoutLineIdLoader(DataLoader):
             PreorderReservation.objects.using(self.database_connection_name)
             .filter(checkout_line_id__in=keys)
             .not_expired()
-        )  # type: ignore
+        )
         for reservation in queryset:
             reservations_by_checkout_line[reservation.checkout_line_id].append(
                 reservation
@@ -450,10 +528,10 @@ class ActiveReservationsByCheckoutLineIdLoader(DataLoader):
         return [reservations_by_checkout_line[key] for key in keys]
 
 
-class PreorderQuantityReservedByVariantChannelListingIdLoader(DataLoader):
+class PreorderQuantityReservedByVariantChannelListingIdLoader(DataLoader[int, int]):
     context_key = "preorder_quantity_reserved_by_variant_channel_listing_id"
 
-    def batch_load(self, keys):
+    def batch_load(self, keys: Iterable[int]):
         queryset = (
             ProductVariantChannelListing.objects.using(self.database_connection_name)
             .filter(id__in=keys)
@@ -464,10 +542,11 @@ class PreorderQuantityReservedByVariantChannelListingIdLoader(DataLoader):
                 ),
                 where=Q(preorder_reservations__reserved_until__gt=timezone.now()),
             )
+            .order_by("pk")
             .values("id", "quantity_reserved")
         )
 
-        reservations_by_listing_id = defaultdict(int)
+        reservations_by_listing_id: defaultdict[int, int] = defaultdict(int)
         for listing in queryset:
             reservations_by_listing_id[listing["id"]] += listing["quantity_reserved"]
         return [reservations_by_listing_id[key] for key in keys]
@@ -476,9 +555,9 @@ class PreorderQuantityReservedByVariantChannelListingIdLoader(DataLoader):
 class WarehouseByIdLoader(DataLoader):
     context_key = "warehouse_by_id"
 
-    def batch_load(self, keys: Iterable[UUID]) -> List[Optional[Warehouse]]:
-        warehouses = Warehouse.objects.using(self.database_connection_name).in_bulk(
-            keys
+    def batch_load(self, keys: Iterable[UUID]) -> list[Optional[Warehouse]]:
+        warehouses = (
+            Warehouse.objects.all().using(self.database_connection_name).in_bulk(keys)
         )
         return [warehouses.get(warehouse_uuid) for warehouse_uuid in keys]
 
@@ -517,5 +596,36 @@ class WarehousesByChannelIdLoader(DataLoader):
         return (
             WarehouseByIdLoader(self.context)
             .load_many({pk for pk, _ in warehouse_and_channel_in_pairs})
+            .then(map_warehouses)
+        )
+
+
+class WarehousesByShippingZoneIdLoader(DataLoader):
+    context_key = "warehouses_by_shipping_zone_id"
+
+    def batch_load(self, keys):
+        warehouse_and_shipping_zone_in_pairs = (
+            ShippingZone.warehouses.through.objects.using(self.database_connection_name)
+            .filter(shippingzone_id__in=keys)
+            .values_list("warehouse_id", "shippingzone_id")
+        )
+
+        shipping_zone_warehouse_map = defaultdict(list)
+        for warehouse_id, shipping_zone_id in warehouse_and_shipping_zone_in_pairs:
+            shipping_zone_warehouse_map[shipping_zone_id].append(warehouse_id)
+
+        def map_warehouses(warehouses):
+            warehouse_map = {warehouse.pk: warehouse for warehouse in warehouses}
+            return [
+                [
+                    warehouse_map[warehouse_id]
+                    for warehouse_id in shipping_zone_warehouse_map[shipping_zone_id]
+                ]
+                for shipping_zone_id in keys
+            ]
+
+        return (
+            WarehouseByIdLoader(self.context)
+            .load_many({pk for pk, _ in warehouse_and_shipping_zone_in_pairs})
             .then(map_warehouses)
         )

@@ -6,6 +6,7 @@ import Adyen
 import pytest
 from django.core.exceptions import ValidationError
 from requests.exceptions import ConnectTimeout, RequestException, SSLError
+from requests_hardened import HTTPSession
 
 from .....plugins.models import PluginConfiguration
 from .... import PaymentError, TransactionKind
@@ -54,13 +55,16 @@ def test_process_additional_action(
 
 @pytest.mark.vcr
 def test_get_payment_gateway_for_checkout(
-    adyen_plugin, checkout_with_single_item, address
+    adyen_plugin, checkout_with_single_item, checkout_info, address, checkout_lines_info
 ):
     checkout_with_single_item.billing_address = address
     checkout_with_single_item.save()
     adyen_plugin = adyen_plugin()
     response = adyen_plugin.get_payment_gateways(
-        currency=None, checkout=checkout_with_single_item, previous_value=None
+        currency=None,
+        checkout_info=checkout_info,
+        checkout_lines=checkout_lines_info,
+        previous_value=None,
     )[0]
     assert response.id == adyen_plugin.PLUGIN_ID
     assert response.name == adyen_plugin.PLUGIN_NAME
@@ -601,7 +605,7 @@ def test_capture_payment(
     assert response.transaction_id == "852610007697063J"  # ID returned by Adyen
 
 
-@mock.patch("saleor.payment.gateways.adyen.utils.apple_pay.requests.post")
+@mock.patch.object(HTTPSession, "request")
 def test_validate_plugin_configuration_incorrect_certificate(
     mocked_request, adyen_plugin
 ):
@@ -612,7 +616,7 @@ def test_validate_plugin_configuration_incorrect_certificate(
         plugin.validate_plugin_configuration(configuration)
 
 
-@mock.patch("saleor.payment.gateways.adyen.utils.apple_pay.requests.post")
+@mock.patch.object(HTTPSession, "request")
 def test_validate_plugin_configuration_correct_cert(mocked_request, adyen_plugin):
     plugin = adyen_plugin(apple_pay_cert="correct_cert")
     mocked_request.side_effect = RequestException()
@@ -634,7 +638,6 @@ def test_validate_plugin_configuration_without_apple_cert(adyen_plugin):
 def test_adyen_check_payment_balance(
     api_call_mock, adyen_plugin, adyen_check_balance_response
 ):
-
     api_call_mock.return_value = adyen_check_balance_response
     plugin = adyen_plugin()
 
@@ -648,7 +651,7 @@ def test_adyen_check_payment_balance(
         },
     }
 
-    result = plugin.check_payment_balance(data)
+    result = plugin.check_payment_balance(data, None)
 
     assert result["pspReference"] == "851634546949980A"
     assert result["resultCode"] == "Success"
@@ -670,7 +673,6 @@ def test_adyen_check_payment_balance(
 
 @mock.patch("saleor.payment.gateways.adyen.plugin.api_call")
 def test_adyen_check_payment_balance_adyen_raises_error(api_call_mock, adyen_plugin):
-
     api_call_mock.return_value = Adyen.AdyenError("Error")
     plugin = adyen_plugin()
 
@@ -684,7 +686,7 @@ def test_adyen_check_payment_balance_adyen_raises_error(api_call_mock, adyen_plu
         },
     }
 
-    result = plugin.check_payment_balance(data)
+    result = plugin.check_payment_balance(data, None)
 
     assert result == "Error"
     api_call_mock.assert_called_once_with(
@@ -717,5 +719,5 @@ def test_adyen_check_payment_timeout(request_post_mock, adyen_plugin):
     }
 
     request_post_mock.side_effect = ConnectTimeout()
-    res = plugin.check_payment_balance(data)
+    res = plugin.check_payment_balance(data, None)
     assert res.startswith("Unable to process the payment request")

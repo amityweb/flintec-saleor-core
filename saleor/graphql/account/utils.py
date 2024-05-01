@@ -1,30 +1,28 @@
-from collections import defaultdict
-from typing import TYPE_CHECKING, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Optional, Union
 
-import graphene
-from django.contrib.auth.models import Group
+from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.core.exceptions import ValidationError
 from django.db.models import Q, Value
 from django.db.models.functions import Concat
 from graphene.utils.str_converters import to_camel_case
 
-from ...account import events as account_events
-from ...account.error_codes import AccountErrorCode
+from ...account.models import Group, User
 from ...core.exceptions import PermissionDenied
-from ...core.permissions import (
-    AccountPermissions,
-    AuthorizationFilters,
-    has_one_of_permissions,
+from ...permission.auth_filters import AuthorizationFilters
+from ...permission.enums import AccountPermissions
+from ...permission.utils import has_one_of_permissions
+from .dataloaders import (
+    AccessibleChannelsByGroupIdLoader,
+    AccessibleChannelsByUserIdLoader,
 )
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from ...account.models import User
     from ...app.models import App
 
 
+<<<<<<< HEAD
 class UserDeleteMixin:
     class Meta:
         abstract = True
@@ -166,6 +164,8 @@ class StaffDeleteMixin(UserDeleteMixin):
             errors[field] = error
 
 
+=======
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 def get_required_fields_camel_case(required_fields: set) -> set:
     """Return set of AddressValidationRules required fields in camel case."""
     return {validation_field_to_camel_case(field) for field in required_fields}
@@ -198,17 +198,17 @@ def get_user_permissions(user: "User") -> "QuerySet":
 
 
 def get_out_of_scope_permissions(
-    requestor: Union["User", "App"], permissions: List[str]
-) -> List[str]:
+    requestor: Union["User", "App", None], permissions: list[str]
+) -> list[str]:
     """Return permissions that the requestor hasn't got."""
     missing_permissions = []
     for perm in permissions:
-        if not requestor.has_perm(perm):
+        if not requestor or not requestor.has_perm(perm):
             missing_permissions.append(perm)
     return missing_permissions
 
 
-def get_out_of_scope_users(root_user: "User", users: List["User"]):
+def get_out_of_scope_users(root_user: "User", users: list["User"]):
     """Return users whose permission scope is wider than the given user."""
     out_of_scope_users = []
     for user in users:
@@ -218,36 +218,63 @@ def get_out_of_scope_users(root_user: "User", users: List["User"]):
     return out_of_scope_users
 
 
-def can_user_manage_group(user: "User", group: Group) -> bool:
+def can_user_manage_group(info, user: "User", group: Group) -> bool:
+    """User can't manage a group with permission or channel that is out of his scope."""
+    return can_user_manage_group_permissions(
+        user, group
+    ) and can_user_manage_group_channels(info, user, group)
+
+
+def can_user_manage_group_permissions(user: "User", group: Group) -> bool:
     """User can't manage a group with permission that is out of the user's scope."""
     permissions = get_group_permission_codes(group)
     return user.has_perms(permissions)
 
 
-def can_manage_app(requestor: Union["User", "App"], app: "App") -> bool:
+def can_user_manage_group_channels(info, user: "User", group: Group) -> bool:
+    """User can't manage a group with channel that is out of the user's scope."""
+    if user.is_superuser:
+        return True
+    accessible_channels = set(get_user_accessible_channels(info, user))
+    group_channels = set(
+        AccessibleChannelsByGroupIdLoader(info.context).load(group.id).get()
+    )
+    return not bool(group_channels - accessible_channels)
+
+
+def can_manage_app(requestor: Union["User", "App", None], app: "App") -> bool:
     """Requestor can't manage app with wider scope of permissions."""
     permissions = app.get_permissions()
+    if not requestor:
+        return False
     return requestor.has_perms(permissions)
 
 
 def get_group_permission_codes(group: Group) -> "QuerySet":
     """Return group permissions in the format '<app label>.<permission codename>'."""
     return group.permissions.annotate(
-        formated_codename=Concat("content_type__app_label", Value("."), "codename")
-    ).values_list("formated_codename", flat=True)
+        formatted_codename=Concat("content_type__app_label", Value("."), "codename")
+    ).values_list("formatted_codename", flat=True)  # type: ignore[misc]
 
 
-def get_groups_which_user_can_manage(user: "User") -> List[Optional[Group]]:
+def get_groups_which_user_can_manage(
+    user: "User",
+    database_connection_name: str = settings.DATABASE_CONNECTION_DEFAULT_NAME,
+) -> list[Group]:
     """Return groups which user can manage."""
     if not user.is_staff:
         return []
 
-    user_permissions = get_user_permissions(user)
+    user_permissions = get_user_permissions(user).using(database_connection_name)
     user_permission_pks = set(user_permissions.values_list("pk", flat=True))
 
-    groups = Group.objects.all().annotate(group_perms=ArrayAgg("permissions"))
+    groups = (
+        Group.objects.using(database_connection_name)
+        .all()
+        .annotate(group_perms=ArrayAgg("permissions"))
+    )
 
-    editable_groups = []
+    editable_groups: list[Group] = []
     for group in groups.iterator():
         out_of_scope_permissions = set(group.group_perms) - user_permission_pks
         out_of_scope_permissions.discard(None)
@@ -257,7 +284,7 @@ def get_groups_which_user_can_manage(user: "User") -> List[Optional[Group]]:
     return editable_groups
 
 
-def get_not_manageable_permissions_when_deactivate_or_remove_users(users: List["User"]):
+def get_not_manageable_permissions_when_deactivate_or_remove_users(users: list["User"]):
     """Return permissions that cannot be managed after deactivating or removing users.
 
     After removing or deactivating users, for each user permission which he can manage,
@@ -302,7 +329,7 @@ def get_not_manageable_permissions_when_deactivate_or_remove_users(users: List["
 
 
 def get_not_manageable_permissions_after_removing_perms_from_group(
-    group: Group, permissions: List["str"]
+    group: Group, permissions: list["str"]
 ):
     """Return permissions that cannot be managed after removing permissions from group.
 
@@ -317,14 +344,14 @@ def get_not_manageable_permissions_after_removing_perms_from_group(
 
 
 def get_not_manageable_permissions_after_removing_users_from_group(
-    group: Group, users: List["User"]
+    group: Group, users: list["User"]
 ):
     """Return permissions that cannot be managed after removing users from group.
 
     After removing users from group, for each permission, there should be at least
     one staff member who can manage it (has both “manage staff” and this permission).
     """
-    group_users = group.user_set.all()
+    group_users = group.user_set.all()  # type: ignore[attr-defined]
     group_permissions = group.permissions.values_list("codename", flat=True)
     # if group has manage_staff permission and some users will stay in group
     # given users can me removed (permissions will be manageable)
@@ -361,7 +388,7 @@ def get_not_manageable_permissions_after_group_deleting(group):
 
 def get_not_manageable_permissions(
     groups_data: dict,
-    not_manageable_permissions: Set[str],
+    not_manageable_permissions: set[str],
 ):
     # get users from groups with manage staff and look for not_manageable_permissions
     # if any of not_manageable_permissions is found it is removed from set
@@ -427,7 +454,7 @@ def get_group_to_permissions_and_users_mapping():
 
 def get_users_and_look_for_permissions_in_groups_with_manage_staff(
     groups_data: dict,
-    permissions_to_find: Set[str],
+    permissions_to_find: set[str],
 ):
     """Search for permissions in groups with manage staff and return their users.
 
@@ -437,7 +464,7 @@ def get_users_and_look_for_permissions_in_groups_with_manage_staff(
         permissions_to_find: searched permissions
 
     """
-    users_with_manage_staff: Set[int] = set()
+    users_with_manage_staff: set[int] = set()
     for data in groups_data.values():
         permissions = data["permissions"]
         users = data["users"]
@@ -455,8 +482,8 @@ def get_users_and_look_for_permissions_in_groups_with_manage_staff(
 
 def look_for_permission_in_users_with_manage_staff(
     groups_data: dict,
-    users_to_check: Set[int],
-    permissions_to_find: Set[str],
+    users_to_check: set[int],
+    permissions_to_find: set[str],
 ):
     """Search for permissions in user with manage staff groups.
 
@@ -478,7 +505,7 @@ def look_for_permission_in_users_with_manage_staff(
 
 
 def is_owner_or_has_one_of_perms(
-    requestor: Union["User", "App"], owner: Optional[Union["User", "App"]], *perms
+    requestor: Union["User", "App", None], owner: Optional[Union["User", "App"]], *perms
 ) -> bool:
     """Check if requestor can access data.
 
@@ -493,7 +520,7 @@ def is_owner_or_has_one_of_perms(
 
 
 def check_is_owner_or_has_one_of_perms(
-    requestor: Union["User", "App"], owner: Optional["User"], *perms
+    requestor: Union["User", "App", None], owner: Optional["User"], *perms
 ) -> None:
     """Confirm that requestor can access data, raise `PermissionDenied` otherwise.
 
@@ -508,3 +535,11 @@ def check_is_owner_or_has_one_of_perms(
     """
     if not is_owner_or_has_one_of_perms(requestor, owner, *perms):
         raise PermissionDenied(permissions=list(perms) + [AuthorizationFilters.OWNER])
+
+
+def get_user_accessible_channels(info, user: Optional[User]):
+    return (
+        (AccessibleChannelsByUserIdLoader(info.context).load(user.id).get())
+        if user is not None
+        else []
+    )

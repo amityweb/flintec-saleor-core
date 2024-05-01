@@ -8,7 +8,7 @@ class ProductExportFields:
             "description": "description_as_str",
             "category": "category__slug",
             "product type": "product_type__name",
-            "charge taxes": "charge_taxes",
+            "charge taxes": "",  # deprecated; remove in Saleor 4.0
             "product weight": "product_weight",
             "variant id": "variants__id",
             "variant sku": "variants__sku",
@@ -25,20 +25,21 @@ class ProductExportFields:
     }
 
     PRODUCT_ATTRIBUTE_FIELDS = {
-        "value_slug": "attributes__values__slug",
-        "value_name": "attributes__values__name",
-        "file_url": "attributes__values__file_url",
-        "rich_text": "attributes__values__rich_text",
-        "value": "attributes__values__value",
-        "boolean": "attributes__values__boolean",
-        "date_time": "attributes__values__date_time",
-        "slug": "attributes__assignment__attribute__slug",
-        "input_type": "attributes__assignment__attribute__input_type",
-        "entity_type": "attributes__assignment__attribute__entity_type",
-        "unit": "attributes__assignment__attribute__unit",
-        "attribute_pk": "attributes__assignment__attribute__pk",
-        "value_reference_page": "attributes__values__reference_page",
-        "value_reference_product": "attributes__values__reference_product",
+        "value_slug": "attributevalues__value__slug",
+        "value_name": "attributevalues__value__name",
+        "file_url": "attributevalues__value__file_url",
+        "rich_text": "attributevalues__value__rich_text",
+        "value": "attributevalues__value__value",
+        "boolean": "attributevalues__value__boolean",
+        "date_time": "attributevalues__value__date_time",
+        "slug": "attributevalues__value__attribute__slug",
+        "input_type": "attributevalues__value__attribute__input_type",
+        "entity_type": "attributevalues__value__attribute__entity_type",
+        "unit": "attributevalues__value__attribute__unit",
+        "attribute_pk": "attributevalues__value__attribute__pk",
+        "reference_page": "attributevalues__value__reference_page",
+        "reference_product": "attributevalues__value__reference_product",
+        "reference_variant": "attributevalues__value__reference_variant",
     }
 
     PRODUCT_CHANNEL_LISTING_FIELDS = {
@@ -71,8 +72,9 @@ class ProductExportFields:
         "entity_type": "variants__attributes__assignment__attribute__entity_type",
         "unit": "variants__attributes__assignment__attribute__unit",
         "attribute_pk": "variants__attributes__assignment__attribute__pk",
-        "value_reference_page": "variants__attributes__values__reference_page",
-        "value_reference_product": "variants__attributes__values__reference_product",
+        "reference_page": "variants__attributes__values__reference_page",
+        "reference_product": "variants__attributes__values__reference_product",
+        "reference_variant": "variants__attributes__values__reference_variant",
     }
 
     VARIANT_CHANNEL_LISTING_FIELDS = {

@@ -1,5 +1,6 @@
 import datetime
 
+import graphene
 import pytest
 import pytz
 
@@ -71,6 +72,7 @@ def collections_for_sorting_with_channels(channel_USD, channel_PLN):
             ),
         ]
     )
+    return collections
 
 
 QUERY_COLLECTIONS_WITH_SORTING_AND_FILTERING = """
@@ -120,7 +122,7 @@ def test_collections_with_sorting_and_without_channel(
 
 
 @pytest.mark.parametrize(
-    "sort_by, collections_order",
+    ("sort_by", "collections_order"),
     [
         (
             {"field": "AVAILABILITY", "direction": "ASC"},
@@ -167,7 +169,7 @@ def test_collections_with_sorting_and_channel_USD(
 
 
 @pytest.mark.parametrize(
-    "sort_by, collections_order",
+    ("sort_by", "collections_order"),
     [
         (
             {"field": "AVAILABILITY", "direction": "ASC"},
@@ -293,8 +295,14 @@ def test_collections_with_filtering_without_channel(
 
 
 @pytest.mark.parametrize(
-    "filter_by, collections_count",
-    [({"published": "PUBLISHED"}, 1), ({"published": "HIDDEN"}, 3)],
+    ("filter_by", "collections_count"),
+    [
+        ({"published": "PUBLISHED"}, 1),
+        ({"published": "HIDDEN"}, 3),
+        ({"slugs": ["collection1"]}, 1),
+        ({"slugs": ["collection2", "collection3"]}, 2),
+        ({"slugs": []}, 4),
+    ],
 )
 def test_collections_with_filtering_with_channel_USD(
     filter_by,
@@ -322,7 +330,7 @@ def test_collections_with_filtering_with_channel_USD(
 
 
 @pytest.mark.parametrize(
-    "filter_by, collections_count",
+    ("filter_by", "collections_count"),
     [({"published": "PUBLISHED"}, 1), ({"published": "HIDDEN"}, 3)],
 )
 def test_collections_with_filtering_with_channel_PLN(
@@ -352,7 +360,11 @@ def test_collections_with_filtering_with_channel_PLN(
 
 @pytest.mark.parametrize(
     "filter_by",
-    [{"published": "PUBLISHED"}, {"published": "HIDDEN"}],
+    [
+        {"published": "PUBLISHED"},
+        {"published": "HIDDEN"},
+        {"slugs": ["collection1"]},
+    ],
 )
 def test_collections_with_filtering_and_not_existing_channel(
     filter_by,
@@ -376,3 +388,65 @@ def test_collections_with_filtering_and_not_existing_channel(
     content = get_graphql_content(response)
     collections_nodes = content["data"]["collections"]["edges"]
     assert len(collections_nodes) == 0
+
+
+COLLECTION_WHERE_QUERY = """
+    query($where: CollectionWhereInput!, $channel: String) {
+      collections(first: 10, where: $where, channel: $channel) {
+        edges {
+          node {
+            id
+            slug
+          }
+        }
+      }
+    }
+"""
+
+
+def test_collections_where_by_ids(api_client, collection_list, channel_USD):
+    # given
+    ids = [
+        graphene.Node.to_global_id("Collection", collection.pk)
+        for collection in collection_list[:2]
+    ]
+    variables = {"channel": channel_USD.slug, "where": {"AND": [{"ids": ids}]}}
+
+    # when
+    response = api_client.post_graphql(COLLECTION_WHERE_QUERY, variables)
+
+    # then
+    data = get_graphql_content(response)
+    collections = data["data"]["collections"]["edges"]
+    assert len(collections) == 2
+    returned_slugs = {node["node"]["slug"] for node in collections}
+    assert returned_slugs == {
+        collection_list[0].slug,
+        collection_list[1].slug,
+    }
+
+
+def test_collections_where_by_none_as_ids(api_client, collection_list, channel_USD):
+    # given
+    variables = {"channel": channel_USD.slug, "where": {"AND": [{"ids": None}]}}
+
+    # when
+    response = api_client.post_graphql(COLLECTION_WHERE_QUERY, variables)
+
+    # then
+    data = get_graphql_content(response)
+    collections = data["data"]["collections"]["edges"]
+    assert len(collections) == 0
+
+
+def test_collections_where_by_ids_empty_list(api_client, collection_list, channel_USD):
+    # given
+    variables = {"channel": channel_USD.slug, "where": {"ids": []}}
+
+    # when
+    response = api_client.post_graphql(COLLECTION_WHERE_QUERY, variables)
+
+    # then
+    data = get_graphql_content(response)
+    collections = data["data"]["collections"]["edges"]
+    assert len(collections) == 0

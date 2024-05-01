@@ -6,7 +6,6 @@ import saleor.order.models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("order", "0128_set_order_number"),
     ]
@@ -24,7 +23,8 @@ class Migration(migrations.Migration):
 
             SELECT setval('order_order_number_seq', coalesce(max(number), 0) + 1, false)
             FROM order_order;
-        """
+            """,
+            reverse_sql=migrations.RunSQL.noop,
         ),
         migrations.AlterField(
             model_name="order",

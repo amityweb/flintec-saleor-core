@@ -538,7 +538,6 @@
       "category": 26,
       "created_at": "2022-05-12T22:07:58.327Z",
       "updated_at": "2022-05-19T09:20:18.453Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -573,7 +572,6 @@
       "category": 28,
       "created_at": "2022-05-13T14:34:39.934Z",
       "updated_at": "2022-05-13T20:11:18.993Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -608,7 +606,6 @@
       "category": 28,
       "created_at": "2022-05-13T20:14:01.299Z",
       "updated_at": "2022-05-13T20:39:54.551Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -643,7 +640,6 @@
       "category": 28,
       "created_at": "2022-05-13T20:44:05.403Z",
       "updated_at": "2022-05-13T20:47:18.902Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -678,7 +674,6 @@
       "category": 28,
       "created_at": "2022-05-13T20:50:54.123Z",
       "updated_at": "2022-05-13T21:15:21.592Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -701,7 +696,6 @@
       "category": 29,
       "created_at": "2022-05-13T21:07:45.009Z",
       "updated_at": "2022-05-13T21:10:33.993Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -724,7 +718,6 @@
       "category": 29,
       "created_at": "2022-05-13T21:11:28.525Z",
       "updated_at": "2022-05-16T16:40:43.118Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -747,7 +740,6 @@
       "category": 29,
       "created_at": "2022-05-13T21:13:28.944Z",
       "updated_at": "2022-05-13T21:14:28.328Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -782,7 +774,6 @@
       "category": 39,
       "created_at": "2022-05-13T21:20:59.727Z",
       "updated_at": "2022-05-15T09:38:17.179Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -817,7 +808,6 @@
       "category": 39,
       "created_at": "2022-05-13T21:29:38.009Z",
       "updated_at": "2022-05-14T21:37:02.094Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -852,7 +842,6 @@
       "category": 40,
       "created_at": "2022-05-13T21:37:35.753Z",
       "updated_at": "2022-05-14T21:36:42.372Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -887,7 +876,6 @@
       "category": 39,
       "created_at": "2022-05-13T21:41:46.295Z",
       "updated_at": "2022-05-14T21:36:18.923Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -922,7 +910,6 @@
       "category": 39,
       "created_at": "2022-05-13T21:44:02.972Z",
       "updated_at": "2022-05-14T21:36:31.780Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -945,7 +932,6 @@
       "category": 35,
       "created_at": "2022-05-13T23:50:16.297Z",
       "updated_at": "2022-05-14T21:33:36.545Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -968,7 +954,6 @@
       "category": 36,
       "created_at": "2022-05-14T21:10:01.383Z",
       "updated_at": "2022-05-14T21:33:04.263Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -991,7 +976,6 @@
       "category": 37,
       "created_at": "2022-05-14T21:24:57.725Z",
       "updated_at": "2022-05-14T21:25:09.229Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1024,7 +1008,6 @@
       "category": 26,
       "created_at": "2022-05-14T21:53:34.556Z",
       "updated_at": "2022-05-19T09:15:38.806Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1057,7 +1040,6 @@
       "category": 26,
       "created_at": "2022-05-15T09:03:06.009Z",
       "updated_at": "2022-05-19T09:19:50.290Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1092,7 +1074,6 @@
       "category": 26,
       "created_at": "2022-05-15T09:10:17.077Z",
       "updated_at": "2022-05-19T09:22:29.677Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1127,7 +1108,6 @@
       "category": 41,
       "created_at": "2022-05-15T09:28:13.067Z",
       "updated_at": "2022-05-15T09:28:13.368Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1162,7 +1142,6 @@
       "category": 41,
       "created_at": "2022-05-15T09:32:27.163Z",
       "updated_at": "2022-05-16T16:38:35.766Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1197,7 +1176,6 @@
       "category": 43,
       "created_at": "2022-05-16T16:19:50.880Z",
       "updated_at": "2022-05-18T12:21:40.815Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1232,7 +1210,6 @@
       "category": 43,
       "created_at": "2022-05-16T16:25:11.442Z",
       "updated_at": "2022-05-16T16:25:11.768Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1267,7 +1244,6 @@
       "category": 43,
       "created_at": "2022-05-16T16:27:16.648Z",
       "updated_at": "2022-05-16T16:27:16.933Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1302,7 +1278,6 @@
       "category": 43,
       "created_at": "2022-05-16T16:28:14.885Z",
       "updated_at": "2022-05-17T12:36:31.471Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1325,7 +1300,6 @@
       "category": 37,
       "created_at": "2022-05-17T11:44:16.884Z",
       "updated_at": "2022-05-17T11:44:17.205Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1360,7 +1334,6 @@
       "category": 39,
       "created_at": "2022-05-17T11:48:18.537Z",
       "updated_at": "2022-05-17T11:50:42.152Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1393,7 +1366,6 @@
       "category": 44,
       "created_at": "2022-05-17T11:57:19.204Z",
       "updated_at": "2022-05-18T19:30:32.578Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1428,7 +1400,6 @@
       "category": 39,
       "created_at": "2022-05-17T12:02:44.850Z",
       "updated_at": "2022-05-18T12:21:19.661Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1463,7 +1434,6 @@
       "category": 41,
       "created_at": "2022-05-18T12:06:53.986Z",
       "updated_at": "2022-05-18T12:07:49.831Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1486,7 +1456,6 @@
       "category": 44,
       "created_at": "2022-05-18T19:29:35.052Z",
       "updated_at": "2022-05-18T19:29:47.127Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -1509,7 +1478,6 @@
       "category": 44,
       "created_at": "2022-05-18T19:31:14.463Z",
       "updated_at": "2022-05-18T19:31:14.751Z",
-      "charge_taxes": false,
       "weight": null,
       "rating": 0.0
     }
@@ -3910,6 +3878,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "40.000",
+      "discounted_price_amount": "40.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3922,6 +3891,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "10.000",
+      "discounted_price_amount": "10.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3934,6 +3904,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3946,6 +3917,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3958,6 +3930,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3970,6 +3943,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3982,6 +3956,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -3994,6 +3969,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4006,6 +3982,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4018,6 +3995,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "240.000",
+      "discounted_price_amount": "240.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4030,6 +4008,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4042,6 +4021,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4054,6 +4034,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4066,6 +4047,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4078,6 +4060,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4090,6 +4073,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "80.000",
+      "discounted_price_amount": "80.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4102,6 +4086,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "230.000",
+      "discounted_price_amount": "230.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4114,6 +4099,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "75.000",
+      "discounted_price_amount": "75.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4126,6 +4112,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "230.000",
+      "discounted_price_amount": "230.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4138,6 +4125,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "75.000",
+      "discounted_price_amount": "75.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4150,6 +4138,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "230.000",
+      "discounted_price_amount": "230.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4162,6 +4151,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "75.000",
+      "discounted_price_amount": "75.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4174,6 +4164,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "420.000",
+      "discounted_price_amount": "420.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4186,6 +4177,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4198,6 +4190,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "420.000",
+      "discounted_price_amount": "420.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4210,6 +4203,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4222,6 +4216,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "420.000",
+      "discounted_price_amount": "420.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4234,6 +4229,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4246,6 +4242,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "420.000",
+      "discounted_price_amount": "420.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4258,6 +4255,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4270,6 +4268,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "420.000",
+      "discounted_price_amount": "420.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4282,6 +4281,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4294,6 +4294,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "209.960",
+      "discounted_price_amount": "209.960",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4306,6 +4307,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4318,6 +4320,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "209.960",
+      "discounted_price_amount": "209.960",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4330,6 +4333,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4342,6 +4346,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "209.960",
+      "discounted_price_amount": "209.960",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4354,6 +4359,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4366,6 +4372,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "209.960",
+      "discounted_price_amount": "209.960",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4378,6 +4385,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4390,6 +4398,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "209.960",
+      "discounted_price_amount": "209.960",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4402,6 +4411,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4414,6 +4424,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "100.000",
+      "discounted_price_amount": "100.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4426,6 +4437,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "30.000",
+      "discounted_price_amount": "30.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4438,6 +4450,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "120.000",
+      "discounted_price_amount": "120.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4450,6 +4463,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "35.000",
+      "discounted_price_amount": "35.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4462,6 +4476,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "120.000",
+      "discounted_price_amount": "120.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4474,6 +4489,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "35.000",
+      "discounted_price_amount": "35.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4486,6 +4502,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4498,6 +4515,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "20.000",
+      "discounted_price_amount": "20.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4510,6 +4528,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4522,6 +4541,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "20.000",
+      "discounted_price_amount": "20.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4534,6 +4554,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4546,6 +4567,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "20.000",
+      "discounted_price_amount": "20.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4558,6 +4580,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4570,6 +4593,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "20.000",
+      "discounted_price_amount": "20.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4582,6 +4606,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4594,6 +4619,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "20.000",
+      "discounted_price_amount": "20.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4606,6 +4632,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "200.000",
+      "discounted_price_amount": "200.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4618,6 +4645,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "40.000",
+      "discounted_price_amount": "40.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4630,6 +4658,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "200.000",
+      "discounted_price_amount": "200.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4642,6 +4671,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "40.000",
+      "discounted_price_amount": "40.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4654,6 +4684,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "200.000",
+      "discounted_price_amount": "200.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4666,6 +4697,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "40.000",
+      "discounted_price_amount": "40.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4678,6 +4710,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "200.000",
+      "discounted_price_amount": "200.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4690,6 +4723,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "40.000",
+      "discounted_price_amount": "40.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4702,6 +4736,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "200.000",
+      "discounted_price_amount": "200.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4714,6 +4749,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "40.000",
+      "discounted_price_amount": "40.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4726,6 +4762,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4738,6 +4775,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4750,6 +4788,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4762,6 +4801,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4774,6 +4814,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4786,6 +4827,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4798,6 +4840,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4810,6 +4853,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4822,6 +4866,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4834,6 +4879,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4846,6 +4892,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4858,6 +4905,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4870,6 +4918,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4882,6 +4931,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4894,6 +4944,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4906,6 +4957,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4918,6 +4970,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "150.000",
+      "discounted_price_amount": "150.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4930,6 +4983,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4942,6 +4996,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4954,6 +5009,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "10.000",
+      "discounted_price_amount": "10.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4966,6 +5022,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4978,6 +5035,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "20.000",
+      "discounted_price_amount": "20.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -4990,6 +5048,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "60.000",
+      "discounted_price_amount": "60.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5002,6 +5061,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "15.000",
+      "discounted_price_amount": "15.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5014,6 +5074,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5026,6 +5087,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "10.000",
+      "discounted_price_amount": "10.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5038,6 +5100,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5050,6 +5113,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "10.000",
+      "discounted_price_amount": "10.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5062,6 +5126,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "45.000",
+      "discounted_price_amount": "45.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5074,6 +5139,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "10.000",
+      "discounted_price_amount": "10.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5086,6 +5152,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "29.990",
+      "discounted_price_amount": "29.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5098,6 +5165,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "8.990",
+      "discounted_price_amount": "8.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5110,6 +5178,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "29.990",
+      "discounted_price_amount": "29.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5122,6 +5191,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "8.990",
+      "discounted_price_amount": "8.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5134,6 +5204,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "29.990",
+      "discounted_price_amount": "29.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5146,6 +5217,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "8.990",
+      "discounted_price_amount": "8.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5158,6 +5230,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "29.990",
+      "discounted_price_amount": "29.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5170,6 +5243,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "8.990",
+      "discounted_price_amount": "8.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5182,6 +5256,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "9.990",
+      "discounted_price_amount": "9.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5194,6 +5269,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "2.000",
+      "discounted_price_amount": "2.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5206,6 +5282,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "9.990",
+      "discounted_price_amount": "9.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5218,6 +5295,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "2.000",
+      "discounted_price_amount": "2.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5230,6 +5308,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "29.990",
+      "discounted_price_amount": "29.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5242,6 +5321,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "11.990",
+      "discounted_price_amount": "11.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5254,6 +5334,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "70.000",
+      "discounted_price_amount": "70.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5266,6 +5347,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "18.000",
+      "discounted_price_amount": "18.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5278,6 +5360,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "5.990",
+      "discounted_price_amount": "5.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5290,6 +5373,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "1.990",
+      "discounted_price_amount": "1.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5302,6 +5386,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "5.990",
+      "discounted_price_amount": "5.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5314,6 +5399,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "1.990",
+      "discounted_price_amount": "1.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5326,6 +5412,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "5.990",
+      "discounted_price_amount": "5.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5338,6 +5425,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "1.990",
+      "discounted_price_amount": "1.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5350,6 +5438,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "5.990",
+      "discounted_price_amount": "5.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5362,6 +5451,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "1.990",
+      "discounted_price_amount": "1.990",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5374,6 +5464,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "90.000",
+      "discounted_price_amount": "90.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5386,6 +5477,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "17.000",
+      "discounted_price_amount": "17.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5398,6 +5490,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "120.000",
+      "discounted_price_amount": "120.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5410,6 +5503,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "25.000",
+      "discounted_price_amount": "25.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5422,6 +5516,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "120.000",
+      "discounted_price_amount": "120.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5434,6 +5529,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "25.000",
+      "discounted_price_amount": "25.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5446,6 +5542,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "450.000",
+      "discounted_price_amount": "450.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5458,6 +5555,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "100.000",
+      "discounted_price_amount": "100.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5470,6 +5568,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "130.000",
+      "discounted_price_amount": "130.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5482,6 +5581,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "30.000",
+      "discounted_price_amount": "30.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5494,6 +5594,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "130.000",
+      "discounted_price_amount": "130.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5506,6 +5607,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "30.000",
+      "discounted_price_amount": "30.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5518,6 +5620,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "130.000",
+      "discounted_price_amount": "130.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5530,6 +5633,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "30.000",
+      "discounted_price_amount": "30.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5542,6 +5646,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "130.000",
+      "discounted_price_amount": "130.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5554,6 +5659,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "30.000",
+      "discounted_price_amount": "30.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5566,6 +5672,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "130.000",
+      "discounted_price_amount": "130.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5578,6 +5685,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "30.000",
+      "discounted_price_amount": "30.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5590,6 +5698,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "230.000",
+      "discounted_price_amount": "230.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5602,6 +5711,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5614,6 +5724,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "2300.000",
+      "discounted_price_amount": "2300.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5626,6 +5737,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "500.000",
+      "discounted_price_amount": "500.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5638,6 +5750,7 @@
       "channel": 2,
       "currency": "PLN",
       "price_amount": "230.000",
+      "discounted_price_amount": "230.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -5650,6 +5763,7 @@
       "channel": 1,
       "currency": "USD",
       "price_amount": "50.000",
+      "discounted_price_amount": "50.000",
       "cost_price_amount": null,
       "preorder_quantity_threshold": null
     }
@@ -7323,182 +7437,92 @@
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 193,
-    "fields": { "sort_order": 0, "value": 138, "assignment": 37 }
+    "fields": { "sort_order": 0, "value": 138, "product": 126 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 194,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 38 }
+    "fields": { "sort_order": 0, "value": 105, "product": 131 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 195,
-    "fields": { "sort_order": 0, "value": 107, "assignment": 39 }
+    "fields": { "sort_order": 0, "value": 107, "product": 132 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 196,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 40 }
+    "fields": { "sort_order": 0, "value": 105, "product": 133 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 197,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 41 }
+    "fields": { "sort_order": 0, "value": 105, "product": 134 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 198,
-    "fields": { "sort_order": 0, "value": 106, "assignment": 42 }
+    "fields": { "sort_order": 0, "value": 106, "product": 135 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 199,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 43 }
+    "fields": { "sort_order": 0, "value": 105, "product": 136 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 200,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 44 }
+    "fields": { "sort_order": 0, "value": 105, "product": 137 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 201,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 45 }
+    "fields": { "sort_order": 0, "value": 105, "product": 138 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 204,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 48 }
+    "fields": { "sort_order": 0, "value": 105, "product": 141 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 206,
-    "fields": { "sort_order": 0, "value": 140, "assignment": 50 }
+    "fields": { "sort_order": 0, "value": 140, "product": 143 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 207,
-    "fields": { "sort_order": 0, "value": 141, "assignment": 51 }
+    "fields": { "sort_order": 0, "value": 141, "product": 146 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 208,
-    "fields": { "sort_order": 0, "value": 141, "assignment": 52 }
+    "fields": { "sort_order": 0, "value": 141, "product": 147 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 210,
-    "fields": { "sort_order": 0, "value": 129, "assignment": 54 }
+    "fields": { "sort_order": 0, "value": 129, "product": 152 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 211,
-    "fields": { "sort_order": 0, "value": 123, "assignment": 55 }
+    "fields": { "sort_order": 0, "value": 123, "product": 153 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 212,
-    "fields": { "sort_order": 0, "value": 122, "assignment": 56 }
+    "fields": { "sort_order": 0, "value": 122, "product": 154 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 213,
-    "fields": { "sort_order": 0, "value": 124, "assignment": 57 }
+    "fields": { "sort_order": 0, "value": 124, "product": 155 }
   },
   {
     "model": "attribute.assignedproductattributevalue",
     "pk": 214,
-    "fields": { "sort_order": 0, "value": 105, "assignment": 58 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 37,
-    "fields": { "product": 126, "assignment": 10 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 38,
-    "fields": { "product": 131, "assignment": 11 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 39,
-    "fields": { "product": 132, "assignment": 11 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 40,
-    "fields": { "product": 133, "assignment": 11 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 41,
-    "fields": { "product": 134, "assignment": 12 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 42,
-    "fields": { "product": 135, "assignment": 12 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 43,
-    "fields": { "product": 136, "assignment": 12 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 44,
-    "fields": { "product": 137, "assignment": 12 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 45,
-    "fields": { "product": 138, "assignment": 12 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 48,
-    "fields": { "product": 141, "assignment": 13 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 50,
-    "fields": { "product": 143, "assignment": 13 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 51,
-    "fields": { "product": 146, "assignment": 10 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 52,
-    "fields": { "product": 147, "assignment": 10 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 54,
-    "fields": { "product": 152, "assignment": 14 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 55,
-    "fields": { "product": 153, "assignment": 14 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 56,
-    "fields": { "product": 154, "assignment": 14 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 57,
-    "fields": { "product": 155, "assignment": 14 }
-  },
-  {
-    "model": "attribute.assignedproductattribute",
-    "pk": 58,
-    "fields": { "product": 161, "assignment": 12 }
+    "fields": { "sort_order": 0, "value": 105, "product": 161 }
   },
   {
     "model": "attribute.attributeproduct",

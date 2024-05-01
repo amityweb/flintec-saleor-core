@@ -1,19 +1,15 @@
+from collections import defaultdict
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import (
     TYPE_CHECKING,
     Any,
-    DefaultDict,
-    Iterable,
-    List,
     Optional,
-    Set,
-    Tuple,
     Union,
 )
 
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpResponse, HttpResponseNotFound, JsonResponse
-from django_countries.fields import Country
 from graphene import Mutation
 from graphql import GraphQLError, ResolveInfo
 from graphql.execution import ExecutionResult
@@ -22,22 +18,24 @@ from prices import Money, TaxedMoney
 from ...account.models import User
 from ...core.taxes import TaxData, TaxLineData, TaxType
 from ...order.interface import OrderTaxedPricesData
+from ...payment.interface import (
+    PaymentGatewayData,
+    TransactionSessionData,
+    TransactionSessionResult,
+)
 from ..base_plugin import BasePlugin, ConfigurationTypeField, ExternalAccessTokens
 
 if TYPE_CHECKING:
-    # flake8: noqa
     from ...account.models import Address
-    from ...channel.models import Channel
     from ...checkout.fetch import CheckoutInfo, CheckoutLineInfo
-    from ...checkout.models import Checkout, CheckoutLine
-    from ...discount import DiscountInfo
-    from ...discount.models import Sale
+    from ...checkout.models import Checkout
+    from ...core.models import EventDelivery
+    from ...discount.models import Promotion
     from ...order.models import Order, OrderLine
-    from ...product.models import Product, ProductType, ProductVariant
+    from ...product.models import Product, ProductVariant
 
 
 def sample_tax_data(obj_with_lines: Union["Order", "Checkout"]) -> TaxData:
-
     unit = Decimal("10.00")
     unit_gross = Decimal("12.30")
     lines = [
@@ -108,14 +106,12 @@ class PluginSample(BasePlugin):
             return JsonResponse(data={"received": True, "paid": False})
         return HttpResponseNotFound()
 
-    def calculate_checkout_total(
-        self, checkout_info, lines, address, discounts, previous_value
-    ):
+    def calculate_checkout_total(self, checkout_info, lines, address, previous_value):
         total = Money("1.0", currency=checkout_info.checkout.currency)
         return TaxedMoney(total, total)
 
     def calculate_checkout_shipping(
-        self, checkout_info, lines, address, discounts, previous_value
+        self, checkout_info, lines, address, previous_value
     ):
         price = Money("1.0", currency=checkout_info.checkout.currency)
         return TaxedMoney(price, price)
@@ -130,7 +126,6 @@ class PluginSample(BasePlugin):
         lines: Iterable["CheckoutLineInfo"],
         checkout_line_info: "CheckoutLineInfo",
         address: Optional["Address"],
-        discounts: Iterable["DiscountInfo"],
         previous_value: TaxedMoney,
     ):
         # See if delivery method doesn't trigger infinite recursion
@@ -159,7 +154,6 @@ class PluginSample(BasePlugin):
         lines: Iterable["CheckoutLineInfo"],
         checkout_line_info: "CheckoutLineInfo",
         address: Optional["Address"],
-        discounts: Iterable["DiscountInfo"],
         previous_value: TaxedMoney,
     ):
         currency = checkout_info.checkout.currency
@@ -184,18 +178,6 @@ class PluginSample(BasePlugin):
     def get_tax_rate_type_choices(self, previous_value):
         return [TaxType(code="123", description="abc")]
 
-    def show_taxes_on_storefront(self, previous_value: bool) -> bool:
-        return True
-
-    def apply_taxes_to_product(self, product, price, country, previous_value, **kwargs):
-        price = Money("1.0", price.currency)
-        return TaxedMoney(price, price)
-
-    def get_tax_rate_percentage_value(
-        self, obj: Union["Product", "ProductType"], country: Country, previous_value
-    ) -> Decimal:
-        return Decimal("15.0").quantize(Decimal("1."))
-
     def external_authentication_url(
         self, data: dict, request: WSGIRequest, previous_value
     ) -> dict:
@@ -217,7 +199,7 @@ class PluginSample(BasePlugin):
 
     def external_verify(
         self, data: dict, request: WSGIRequest, previous_value
-    ) -> Tuple[Optional[User], dict]:
+    ) -> tuple[Optional[User], dict]:
         user = User.objects.get()
         return user, {"some_data": "data"}
 
@@ -231,36 +213,52 @@ class PluginSample(BasePlugin):
 
     def sale_created(
         self,
-        sale: "Sale",
-        current_catalogue: DefaultDict[str, Set[str]],
+        sale: "Promotion",
+        current_catalogue: defaultdict[str, set[str]],
         previous_value: Any,
     ):
         return sale, current_catalogue
 
     def sale_updated(
         self,
-        sale: "Sale",
-        previous_catalogue: DefaultDict[str, Set[str]],
-        current_catalogue: DefaultDict[str, Set[str]],
+        sale: "Promotion",
+        previous_catalogue: defaultdict[str, set[str]],
+        current_catalogue: defaultdict[str, set[str]],
         previous_value: Any,
     ):
         return sale, previous_catalogue, current_catalogue
 
     def sale_deleted(
         self,
-        sale: "Sale",
-        previous_catalogue: DefaultDict[str, Set[str]],
+        sale: "Promotion",
+        previous_catalogue: defaultdict[str, set[str]],
         previous_value: Any,
     ):
         return sale, previous_catalogue
 
     def sale_toggle(
         self,
-        sale: "Sale",
-        catalogue: DefaultDict[str, Set[str]],
+        sale: "Promotion",
+        catalogue: defaultdict[str, set[str]],
         previous_value: Any,
+        webhooks,
     ):
         return sale, catalogue
+
+    def promotion_created(self, promotion: "Promotion", previous_value: Any):
+        return None
+
+    def promotion_updated(self, promotion: "Promotion", previous_value: Any):
+        return None
+
+    def promotion_deleted(self, promotion: "Promotion", previous_value: Any):
+        return None
+
+    def promotion_started(self, promotion: "Promotion", previous_value: Any):
+        return None
+
+    def promotion_ended(self, promotion: "Promotion", previous_value: Any):
+        return None
 
     def get_checkout_line_tax_rate(
         self,
@@ -268,7 +266,6 @@ class PluginSample(BasePlugin):
         lines: Iterable["CheckoutLineInfo"],
         checkout_line_info: "CheckoutLineInfo",
         address: Optional["Address"],
-        discounts: Iterable["DiscountInfo"],
         previous_value: Decimal,
     ) -> Decimal:
         return Decimal("0.080").quantize(Decimal(".01"))
@@ -288,7 +285,6 @@ class PluginSample(BasePlugin):
         checkout_info: "CheckoutInfo",
         lines: Iterable["CheckoutLineInfo"],
         address: Optional["Address"],
-        discounts: Iterable["DiscountInfo"],
         previous_value: Decimal,
     ):
         return Decimal("0.080").quantize(Decimal(".01"))
@@ -297,12 +293,12 @@ class PluginSample(BasePlugin):
         return Decimal("0.080").quantize(Decimal(".01"))
 
     def get_taxes_for_checkout(
-        self, checkout_info: "CheckoutInfo", lines, previous_value
+        self, checkout_info: "CheckoutInfo", lines, app_identifier, previous_value
     ) -> Optional["TaxData"]:
         return sample_tax_data(checkout_info.checkout)
 
     def get_taxes_for_order(
-        self, order: "Order", previous_value
+        self, order: "Order", app_identifier, previous_value
     ) -> Optional["TaxData"]:
         return sample_tax_data(order)
 
@@ -321,6 +317,64 @@ class PluginSample(BasePlugin):
         previous_value: Optional[Union[ExecutionResult, GraphQLError]],
     ) -> Optional[Union[ExecutionResult, GraphQLError]]:
         return None
+
+    def payment_gateway_initialize_session(
+        self,
+        amount: Decimal,
+        payment_gateways: Optional[list["PaymentGatewayData"]],
+        source_object: Union["Order", "Checkout"],
+        previous_value: Any,
+    ):
+        return [PaymentGatewayData(app_identifier="123", data={"some": "json-data"})]
+
+    def transaction_initialize_session(
+        self,
+        transaction_session_data: "TransactionSessionData",
+        previous_value: Any,
+    ):
+        return TransactionSessionResult(
+            app_identifier="123", response=None, error="Some error"
+        )
+
+    def transaction_process_session(
+        self,
+        transaction_session_data: "TransactionSessionData",
+        previous_value: Any,
+    ):
+        return TransactionSessionResult(
+            app_identifier="321", response=None, error="Some error"
+        )
+
+    def checkout_fully_paid(self, checkout, previous_value):
+        return None
+
+    def order_fully_refunded(self, order, previous_value):
+        return None
+
+    def order_paid(self, order, previous_value):
+        return None
+
+    def order_refunded(self, order, previous_value):
+        return None
+
+    def list_stored_payment_methods(
+        self,
+        list_payment_method_data,
+        previous_value,
+    ):
+        return []
+
+    def stored_payment_method_request_delete(self, request_delete_data, previous_value):
+        return previous_value
+
+    def payment_gateway_initialize_tokenization(self, request_data, previous_value):
+        return previous_value
+
+    def payment_method_initialize_tokenization(self, request_data, previous_value):
+        return previous_value
+
+    def payment_method_process_tokenization(self, request_data, previous_value):
+        return previous_value
 
 
 class ChannelPluginSample(PluginSample):
@@ -417,6 +471,17 @@ class ActiveDummyPaymentGateway(BasePlugin):
 
     def check_payment_balance(self, request_data: dict, previous_value):
         return {"test_response": "success"}
+
+
+class SampleAuthorizationPlugin(BasePlugin):
+    PLUGIN_ID = "saleor.sample.authorization"
+    PLUGIN_NAME = "SampleAuthorization"
+    DEFAULT_ACTIVE = True
+    CONFIGURATION_PER_CHANNEL = False
+
+    def authenticate_user(self, request, previous_value) -> Optional[User]:
+        # This function will be mocked in test
+        raise NotImplementedError()
 
 
 class InactivePaymentGateway(BasePlugin):

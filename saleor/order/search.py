@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import graphene
 from django.conf import settings
@@ -24,7 +24,7 @@ def update_order_search_vector(order: "Order", *, save: bool = True):
 
 def prepare_order_search_vector_value(
     order: "Order", *, already_prefetched=False
-) -> List[NoValidationSearchVector]:
+) -> list[NoValidationSearchVector]:
     if not already_prefetched:
         prefetch_related_objects(
             [order],
@@ -34,6 +34,7 @@ def prepare_order_search_vector_value(
             "payments",
             "discounts",
             "lines",
+            "payment_transactions__events",
         )
     search_vectors = [
         NoValidationSearchVector(Value(str(order.number)), config="simple", weight="A")
@@ -75,12 +76,49 @@ def prepare_order_search_vector_value(
     search_vectors += generate_order_payments_search_vector_value(order)
     search_vectors += generate_order_discounts_search_vector_value(order)
     search_vectors += generate_order_lines_search_vector_value(order)
+    search_vectors += generate_order_transactions_search_vector_value(order)
     return search_vectors
+
+
+def generate_order_transactions_search_vector_value(
+    order: "Order",
+) -> list[NoValidationSearchVector]:
+    transaction_vectors = []
+    for transaction in order.payment_transactions.all()[
+        : settings.SEARCH_ORDERS_MAX_INDEXED_TRANSACTIONS
+    ]:
+        transaction_vectors.append(
+            NoValidationSearchVector(
+                Value(graphene.Node.to_global_id("TransactionItem", transaction.token)),
+                config="simple",
+                weight="D",
+            )
+        )
+        if transaction.psp_reference:
+            transaction_vectors.append(
+                NoValidationSearchVector(
+                    Value(transaction.psp_reference),
+                    config="simple",
+                    weight="D",
+                )
+            )
+        for event in transaction.events.all()[
+            : settings.SEARCH_ORDERS_MAX_INDEXED_TRANSACTIONS
+        ]:
+            if event.psp_reference:
+                transaction_vectors.append(
+                    NoValidationSearchVector(
+                        Value(event.psp_reference),
+                        config="simple",
+                        weight="D",
+                    )
+                )
+    return transaction_vectors
 
 
 def generate_order_payments_search_vector_value(
     order: "Order",
-) -> List[NoValidationSearchVector]:
+) -> list[NoValidationSearchVector]:
     payment_vectors = []
     for payment in order.payments.all()[: settings.SEARCH_ORDERS_MAX_INDEXED_PAYMENTS]:
         payment_vectors.append(
@@ -103,7 +141,7 @@ def generate_order_payments_search_vector_value(
 
 def generate_order_discounts_search_vector_value(
     order: "Order",
-) -> List[NoValidationSearchVector]:
+) -> list[NoValidationSearchVector]:
     discount_vectors = []
     for discount in order.discounts.all()[
         : settings.SEARCH_ORDERS_MAX_INDEXED_DISCOUNTS
@@ -129,7 +167,7 @@ def generate_order_discounts_search_vector_value(
 
 def generate_order_lines_search_vector_value(
     order: "Order",
-) -> List[NoValidationSearchVector]:
+) -> list[NoValidationSearchVector]:
     line_vectors = []
     for line in order.lines.all()[: settings.SEARCH_ORDERS_MAX_INDEXED_LINES]:
         if line.product_sku:

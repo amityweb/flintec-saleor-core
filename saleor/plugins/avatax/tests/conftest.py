@@ -7,6 +7,7 @@ from ....checkout.fetch import CheckoutInfo, get_delivery_method_info
 from ....shipping.models import ShippingMethodChannelListing
 from ....shipping.utils import convert_to_shipping_method_data
 from ...models import PluginConfiguration
+from .. import AvataxConfiguration
 from ..plugin import AvataxPlugin
 
 
@@ -25,7 +26,7 @@ def plugin_configuration(db, channel_USD):
     def set_configuration(
         username=default_username,
         password=default_password,
-        sandbox=False,
+        sandbox=True,
         channel=None,
         active=True,
         from_street_address="Teczowa 7",
@@ -34,8 +35,6 @@ def plugin_configuration(db, channel_USD):
         from_country_area="",
         from_postal_code="53-601",
         shipping_tax_code="FR000000",
-        override_global_tax=False,
-        include_taxes_in_prices=True,
     ):
         channel = channel or channel_USD
         data = {
@@ -54,8 +53,6 @@ def plugin_configuration(db, channel_USD):
                 {"name": "from_country_area", "value": from_country_area},
                 {"name": "from_postal_code", "value": from_postal_code},
                 {"name": "shipping_tax_code", "value": shipping_tax_code},
-                {"name": "override_global_tax", "value": override_global_tax},
-                {"name": "include_taxes_in_prices", "value": include_taxes_in_prices},
             ],
         }
         configuration = PluginConfiguration.objects.create(
@@ -64,6 +61,20 @@ def plugin_configuration(db, channel_USD):
         return configuration
 
     return set_configuration
+
+
+@pytest.fixture
+def avatax_config():
+    return AvataxConfiguration(
+        username_or_account=os.environ.get("AVALARA_USERNAME", "test"),
+        password_or_license=os.environ.get("AVALARA_PASSWORD", "test"),
+        use_sandbox=True,
+        from_street_address="Tęczowa 7",
+        from_city="WROCŁAW",
+        from_country_area="",
+        from_postal_code="53-601",
+        from_country="PL",
+    )
 
 
 @pytest.fixture
@@ -108,8 +119,10 @@ def checkout_with_items_and_shipping_info(checkout_with_items_and_shipping):
             convert_to_shipping_method_data(shipping_method, shipping_channel_listing),
             shipping_address,
         ),
+        tax_configuration=channel.tax_configuration,
         valid_pick_up_points=[],
         all_shipping_methods=[],
+        discounts=[],
     )
     return checkout_info
 

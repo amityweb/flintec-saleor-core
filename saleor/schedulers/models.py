@@ -1,16 +1,16 @@
 import importlib
-from typing import Dict
 
 from celery.schedules import BaseSchedule
 from django.core.exceptions import SuspiciousOperation, ValidationError
 from django.db import models
 from django.db.models import signals
 from django_celery_beat import models as base_models
+from django_celery_beat import querysets
 
 from . import customschedule
 
 
-class CustomSchedule(models.Model):
+class CustomSchedule(models.Model):  # type: ignore[django-manager-missing] # problem with django-stubs # noqa: E501
     """Defines the db model storing the details of a custom Celery beat schedulers.
 
     This model keeps track of the Python import path of the custom Celery beat scheduler
@@ -30,7 +30,7 @@ class CustomSchedule(models.Model):
 
     no_changes = False
 
-    CACHED_SCHEDULES: Dict[str, BaseSchedule] = {}
+    CACHED_SCHEDULES: dict[str, BaseSchedule] = {}
     schedule_import_path = models.CharField(
         max_length=255,
         help_text="The python import path where the Celery scheduler is defined at",
@@ -68,6 +68,9 @@ class CustomSchedule(models.Model):
         return f"{self.schedule_import_path=}"
 
 
+PeriodicTaskManager = models.Manager.from_queryset(querysets.PeriodicTaskQuerySet)
+
+
 class CustomPeriodicTask(base_models.PeriodicTask):
     no_changes = False
 
@@ -82,6 +85,8 @@ class CustomPeriodicTask(base_models.PeriodicTask):
             "Set only one schedule type, leave the others null."
         ),
     )
+
+    objects = PeriodicTaskManager()
 
     def validate_unique(self, *args, **kwargs):
         models.Model.validate_unique(self, *args, **kwargs)

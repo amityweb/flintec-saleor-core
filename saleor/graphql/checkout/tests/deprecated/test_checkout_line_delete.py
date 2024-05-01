@@ -59,8 +59,8 @@ def test_checkout_line_delete_by_id(
     lines, _ = fetch_checkout_lines(checkout)
     assert checkout.lines.count() == 0
     assert calculate_checkout_quantity(lines) == 0
-    manager = get_plugins_manager()
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    manager = get_plugins_manager(allow_replica=False)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     mocked_update_shipping_method.assert_called_once_with(checkout_info, lines)
 
 
@@ -91,8 +91,8 @@ def test_checkout_line_delete_by_token(
     lines, _ = fetch_checkout_lines(checkout)
     assert checkout.lines.count() == 0
     assert calculate_checkout_quantity(lines) == 0
-    manager = get_plugins_manager()
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    manager = get_plugins_manager(allow_replica=False)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     mocked_update_shipping_method.assert_called_once_with(checkout_info, lines)
 
 
@@ -162,6 +162,6 @@ def test_checkout_line_delete_by_old_line_id(
     lines, _ = fetch_checkout_lines(checkout)
     assert checkout.lines.count() == 0
     assert calculate_checkout_quantity(lines) == 0
-    manager = get_plugins_manager()
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    manager = get_plugins_manager(allow_replica=False)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     mocked_update_shipping_method.assert_called_once_with(checkout_info, lines)

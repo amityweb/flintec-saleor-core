@@ -1,35 +1,44 @@
 import json
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import urljoin
 
 import opentracing
 import opentracing.tags
 import requests
-from django.contrib.sites.models import Site
 from django.core.cache import cache
 from requests.auth import HTTPBasicAuth
 
 from ...account.models import Address
 from ...checkout import base_calculations
 from ...checkout.utils import is_shipping_required
+from ...core.http_client import HTTPClient
 from ...core.taxes import TaxError
-from ...discount import OrderDiscountType, VoucherType
+from ...discount import DiscountType, VoucherType
 from ...order import base_calculations as base_order_calculations
+<<<<<<< HEAD
 from ...order.utils import (
     get_total_order_discount_excluding_shipping,
     get_voucher_discount_assigned_to_order,
 )
 from ...shipping.models import ShippingMethod, ShippingMethodChannelListing
+=======
+from ...order.utils import get_total_order_discount_excluding_shipping
+from ...shipping.models import ShippingMethod
+from ...tax.utils import get_charge_taxes_for_checkout
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 from ...warehouse.models import Warehouse
 
 if TYPE_CHECKING:
     from ...checkout.fetch import CheckoutInfo, CheckoutLineInfo
     from ...order.models import Order
-    from ...product.models import Product, ProductType, ProductVariant
+    from ...product.models import Product, ProductType
+    from ...tax.models import TaxClass
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +48,6 @@ CACHE_TIME = 60 * 60  # 1 hour
 TAX_CODES_CACHE_TIME = 60 * 60 * 24 * 7  # 7 days
 CACHE_KEY = "avatax_request_id_"
 TAX_CODES_CACHE_KEY = "avatax_tax_codes_cache_key"
-TIMEOUT = 10  # API HTTP Requests Timeout
 
 # Common discount code use to apply discount on order
 COMMON_DISCOUNT_VOUCHER_CODE = "OD010000"
@@ -47,6 +55,10 @@ COMMON_DISCOUNT_VOUCHER_CODE = "OD010000"
 # Temporary Unmapped Other SKU - taxable default
 DEFAULT_TAX_CODE = "O9999999"
 DEFAULT_TAX_DESCRIPTION = "Unmapped Other SKU - taxable default"
+
+TAX_CODE_NON_TAXABLE_PRODUCT = "NT"
+
+SHIPPING_ITEM_CODE = "Shipping"
 
 
 @dataclass
@@ -62,16 +74,6 @@ class AvataxConfiguration:
     company_name: str = "DEFAULT"
     autocommit: bool = False
     shipping_tax_code: str = ""
-    override_global_tax: bool = False
-    include_taxes_in_prices: bool = True
-
-    @property
-    def tax_included(self) -> bool:
-        return (
-            self.include_taxes_in_prices
-            if self.override_global_tax
-            else Site.objects.get_current().settings.include_taxes_in_prices
-        )
 
 
 class TransactionType:
@@ -99,15 +101,21 @@ def get_api_url(use_sandbox=True) -> str:
 
 
 def api_post_request(
-    url: str, data: Dict[str, Any], config: AvataxConfiguration
-) -> Dict[str, Any]:
+    url: str, data: dict[str, Any], config: AvataxConfiguration
+) -> dict[str, Any]:
     response = None
     try:
         auth = HTTPBasicAuth(config.username_or_account, config.password_or_license)
-        response = requests.post(url, auth=auth, data=json.dumps(data), timeout=TIMEOUT)
+        response = HTTPClient.send_request(
+            "POST",
+            url,
+            auth=auth,
+            data=json.dumps(data),
+            allow_redirects=False,
+        )
         logger.debug("Hit to Avatax to calculate taxes %s", url)
         json_response = response.json()
-        if "error" in response:  # type: ignore
+        if "error" in response:
             logger.exception("Avatax response contains errors %s", json_response)
             return json_response
     except requests.exceptions.RequestException:
@@ -119,7 +127,7 @@ def api_post_request(
             "Unable to decode the response from Avatax. Response: %s", content
         )
         return {}
-    return json_response  # type: ignore
+    return json_response
 
 
 def api_get_request(
@@ -130,10 +138,10 @@ def api_get_request(
     response = None
     try:
         auth = HTTPBasicAuth(username_or_account, password_or_license)
-        response = requests.get(url, auth=auth, timeout=TIMEOUT)
+        response = HTTPClient.send_request("GET", url, auth=auth, allow_redirects=False)
         json_response = response.json()
         logger.debug("[GET] Hit to %s", url)
-        if "error" in json_response:  # type: ignore
+        if "error" in json_response:
             logger.error("Avatax response contains errors %s", json_response)
         return json_response
     except requests.exceptions.RequestException:
@@ -147,8 +155,16 @@ def api_get_request(
         return {}
 
 
+<<<<<<< HEAD
 def _validate_adddress_details(
     shipping_address, is_shipping_required, address, delivery_method
+=======
+def _validate_address_details(
+    shipping_address: Optional[Address],
+    is_shipping_required: bool,
+    address: Optional[Address],
+    delivery_method,
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 ):
     if not is_shipping_required and address:
         return True
@@ -164,22 +180,40 @@ def _validate_order(order: "Order") -> bool:
     if not order.lines.exists():
         return False
     shipping_required = order.is_shipping_required()
+<<<<<<< HEAD
     if order.collection_point_id:
         collection_point = order.collection_point
         delivery_method: Union[None, ShippingMethod, Warehouse] = collection_point
         shipping_address = collection_point.address  # type: ignore
+=======
+    delivery_method: Union[None, ShippingMethod, Warehouse]
+    address: Optional[Address]
+    shipping_address: Optional[Address]
+    if order.collection_point:
+        collection_point = order.collection_point
+        delivery_method = collection_point
+        shipping_address = collection_point.address
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
         address = shipping_address
     else:
         delivery_method = order.shipping_method
         shipping_address = order.shipping_address
         address = shipping_address or order.billing_address
+<<<<<<< HEAD
     valid_address_details = _validate_adddress_details(
+=======
+    valid_address_details = _validate_address_details(
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
         shipping_address, shipping_required, address, delivery_method
     )
     if not valid_address_details:
         return False
     if shipping_required and isinstance(delivery_method, ShippingMethod):
+<<<<<<< HEAD
         channel_listing = delivery_method.channel_listings.filter(  # type: ignore
+=======
+        channel_listing = delivery_method.channel_listings.filter(
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
             channel_id=order.channel_id
         ).first()
         if not channel_listing:
@@ -197,7 +231,7 @@ def _validate_checkout(
     shipping_required = is_shipping_required(lines)
     shipping_address = checkout_info.delivery_method_info.shipping_address
     address = shipping_address or checkout_info.billing_address
-    return _validate_adddress_details(
+    return _validate_address_details(
         shipping_address,
         shipping_required,
         address,
@@ -205,7 +239,7 @@ def _validate_checkout(
     )
 
 
-def taxes_need_new_fetch(data: Dict[str, Any], cached_data) -> bool:
+def taxes_need_new_fetch(data: dict[str, Any], cached_data) -> bool:
     """Check if Avatax's taxes data need to be refetched.
 
     The response from Avatax is stored in a cache. If an object doesn't exist in cache
@@ -221,13 +255,13 @@ def taxes_need_new_fetch(data: Dict[str, Any], cached_data) -> bool:
 
 
 def append_line_to_data(
-    data: List[Dict[str, Union[Any]]],
+    data: list[dict[str, Any]],
     quantity: int,
     amount: Decimal,
     tax_code: str,
     item_code: str,
-    tax_included: bool,
-    name: str = None,
+    prices_entered_with_tax: bool,
+    name: Optional[str] = None,
     discounted: Optional[bool] = False,
     tax_override_data: Optional[dict] = None,
     ref1: Optional[str] = None,
@@ -237,7 +271,7 @@ def append_line_to_data(
         "quantity": quantity,
         "amount": str(amount),
         "taxCode": tax_code,
-        "taxIncluded": tax_included,
+        "taxIncluded": prices_entered_with_tax,
         "itemCode": item_code,
         "discounted": discounted,
         "description": name,
@@ -253,48 +287,55 @@ def append_line_to_data(
 
 
 def append_shipping_to_data(
-    data: List[Dict],
+    data: list[dict],
     shipping_price_amount: Optional[Decimal],
     shipping_tax_code: str,
-    tax_included: bool,
+    prices_entered_with_tax: bool,
     discounted: Optional[bool] = False,
 ):
-    charge_taxes_on_shipping = (
-        Site.objects.get_current().settings.charge_taxes_on_shipping
-    )
-    if charge_taxes_on_shipping and shipping_price_amount is not None:
+    if shipping_price_amount is not None:
         append_line_to_data(
             data,
             quantity=1,
             amount=shipping_price_amount,
             tax_code=shipping_tax_code,
-            item_code="Shipping",
-            tax_included=tax_included,
+            item_code=SHIPPING_ITEM_CODE,
+            prices_entered_with_tax=prices_entered_with_tax,
             discounted=discounted,
         )
 
 
-def get_checkout_lines_data(
+def generate_request_data_from_checkout_lines(
     checkout_info: "CheckoutInfo",
     lines_info: Iterable["CheckoutLineInfo"],
     config: AvataxConfiguration,
-    tax_included: bool,
-    discounts=None,
-) -> List[Dict[str, Union[str, int, bool, None]]]:
-    data: List[Dict[str, Union[str, int, bool, None]]] = []
+) -> list[dict[str, Union[str, int, bool, None]]]:
+    data: list[dict[str, Union[str, int, bool, None]]] = []
     channel = checkout_info.channel
+
+    charge_taxes = get_charge_taxes_for_checkout(checkout_info, lines_info)
+    prices_entered_with_tax = checkout_info.tax_configuration.prices_entered_with_tax
+
     voucher = checkout_info.voucher
     is_entire_order_discount = (
         voucher.type == VoucherType.ENTIRE_ORDER
         if voucher and not voucher.apply_once_per_order
         else False
     )
+    applicable_checkout_discount = (
+        bool(checkout_info.discounts) or is_entire_order_discount
+    )
+
     for line_info in lines_info:
+        product = line_info.product
+        product_type = line_info.product_type
+        tax_code = _get_product_tax_code(product, product_type)
+
         tax_override_data = {}
-        if not line_info.product.charge_taxes:
-            if not is_entire_order_discount:
+        if not charge_taxes:
+            if not applicable_checkout_discount:
                 continue
-            # if there is a voucher for the entire order we need to attach this line
+            # if there is a checkout discount we need to attach this line
             # with 0 tax to propagate discount through all lines
             tax_override_data = {
                 "type": "taxAmount",
@@ -302,16 +343,9 @@ def get_checkout_lines_data(
                 "reason": "Charge taxes for this product are turned off.",
             }
 
-        product = line_info.product
-        name = product.name
-        product_type = line_info.product_type
-        item_code = line_info.variant.sku or line_info.variant.get_global_id()
-        tax_code = retrieve_tax_code_from_meta(product, default=None)
-        tax_code = tax_code or retrieve_tax_code_from_meta(product_type)
         checkout_line_total = base_calculations.calculate_base_line_total_price(
             line_info,
             channel,
-            discounts,
         )
 
         # This is a workaround for Avatax and sending a lines with amount 0. Like
@@ -327,14 +361,16 @@ def get_checkout_lines_data(
             if checkout_line_total.amount and not tax_override_data
             else DEFAULT_TAX_CODE
         )
+        name = product.name
+        item_code = line_info.variant.sku or line_info.variant.get_global_id()
         append_line_to_data_kwargs = {
             "data": data,
             "quantity": line_info.line.quantity,
             "tax_code": tax_code,
             "item_code": item_code,
             "name": name,
-            "tax_included": tax_included,
-            "discounted": is_entire_order_discount,
+            "prices_entered_with_tax": prices_entered_with_tax,
+            "discounted": applicable_checkout_discount,
             "tax_override_data": tax_override_data,
         }
 
@@ -350,36 +386,48 @@ def get_checkout_lines_data(
         is_shipping_discount = (
             voucher.type == VoucherType.SHIPPING if voucher else False
         )
+
         append_shipping_to_data(
-            data,
-            price.amount if price else None,
-            config.shipping_tax_code,
-            tax_included,
-            is_shipping_discount,
+            data=data,
+            shipping_price_amount=price.amount if price else None,
+            shipping_tax_code=config.shipping_tax_code,
+            prices_entered_with_tax=prices_entered_with_tax,
+            discounted=is_shipping_discount,
         )
 
     return data
 
 
 def get_order_lines_data(
-    order: "Order", config: AvataxConfiguration, tax_included: bool, discounted: bool
-) -> List[Dict[str, Union[str, int, bool, None]]]:
-    data: List[Dict[str, Union[str, int, bool, None]]] = []
+    order: "Order", config: AvataxConfiguration, discounted: bool
+) -> list[dict[str, Union[str, int, bool, None]]]:
+    data: list[dict[str, Union[str, int, bool, None]]] = []
     lines = order.lines.prefetch_related(
         "variant__product__category",
         "variant__product__collections",
         "variant__product__product_type",
-    ).filter(variant__product__charge_taxes=True)
+    )
+
+    tax_configuration = order.channel.tax_configuration
+    prices_entered_with_tax = tax_configuration.prices_entered_with_tax
+
     for line in lines:
         if not line.variant:
             continue
-        product = line.variant.product
-        product_type = line.variant.product.product_type
-        tax_code = retrieve_tax_code_from_meta(product, default=None)
-        tax_code = tax_code or retrieve_tax_code_from_meta(product_type)
+
+        tax_code = None
+        tax_class = line.tax_class
+
+        if tax_class:
+            tax_code = retrieve_tax_code_from_meta(tax_class, default=None)
+        elif line.tax_class_metadata:
+            tax_code = line.tax_class_metadata.get(META_CODE_KEY, DEFAULT_TAX_CODE)
+        else:
+            tax_code = DEFAULT_TAX_CODE
+
         prices_data = base_order_calculations.base_order_line_total(line)
 
-        if tax_included:
+        if prices_entered_with_tax:
             undiscounted_amount = prices_data.undiscounted_price.gross.amount
             price_with_discounts_amount = prices_data.price_with_discounts.gross.amount
         else:
@@ -397,7 +445,7 @@ def get_order_lines_data(
             "tax_code": tax_code if undiscounted_amount else DEFAULT_TAX_CODE,
             "item_code": line.variant.sku or line.variant.get_global_id(),
             "name": line.variant.product.name,
-            "tax_included": tax_included,
+            "prices_entered_with_tax": prices_entered_with_tax,
             "discounted": discounted,
         }
         append_line_to_data(
@@ -405,31 +453,23 @@ def get_order_lines_data(
             amount=price_with_discounts_amount,
         )
 
-    shipping_method_channel_listing = ShippingMethodChannelListing.objects.filter(
-        shipping_method=order.shipping_method_id, channel=order.channel_id
-    ).first()
-    if shipping_method_channel_listing:
-        shipping_discount_amount = Decimal("0")
-        if (
-            order.voucher_id
-            and order.voucher.type == VoucherType.SHIPPING  # type: ignore
-        ):
-            shipping_discount = get_voucher_discount_assigned_to_order(order)
-            if shipping_discount:
-                shipping_discount_amount = shipping_discount.amount_value
-        shipping_price = max(
-            shipping_method_channel_listing.price.amount - shipping_discount_amount,
-            Decimal("0"),
-        )
-        shipping_discounted = order.discounts.filter(
-            type=OrderDiscountType.MANUAL
-        ).exists()
+    if shipping_price := order.base_shipping_price_amount:
+        shipping_discounted = order.discounts.filter(type=DiscountType.MANUAL).exists()
+
         append_shipping_to_data(
+<<<<<<< HEAD
             data,
             shipping_price if shipping_price else None,
             config.shipping_tax_code,
             tax_included,
             shipping_discounted,
+=======
+            data=data,
+            shipping_price_amount=shipping_price if shipping_price else None,
+            shipping_tax_code=config.shipping_tax_code,
+            prices_entered_with_tax=prices_entered_with_tax,
+            discounted=shipping_discounted,
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
         )
     return data
 
@@ -451,9 +491,9 @@ def _is_single_location(ship_from, ship_to):
 
 def generate_request_data(
     transaction_type: str,
-    lines: List[Dict[str, Any]],
+    lines: list[dict[str, Any]],
     transaction_token: str,
-    address: Dict[str, str],
+    address: dict[str, str],
     customer_email: str,
     config: AvataxConfiguration,
     currency: str,
@@ -476,7 +516,11 @@ def generate_request_data(
         "postalCode": address.get("postal_code"),
     }
     if _is_single_location(ship_from, ship_to):
+<<<<<<< HEAD
         addresses: Dict[str, Dict] = {"singleLocation": ship_to}
+=======
+        addresses: dict[str, dict] = {"singleLocation": ship_to}
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     else:
         addresses = {"shipFrom": ship_from, "shipTo": ship_to}
     data = {
@@ -501,13 +545,12 @@ def generate_request_data_from_checkout(
     checkout_info: "CheckoutInfo",
     lines_info: Iterable["CheckoutLineInfo"],
     config: AvataxConfiguration,
-    tax_included: bool,
     transaction_token=None,
     transaction_type=TransactionType.ORDER,
-    discounts=None,
 ):
     shipping_address = checkout_info.delivery_method_info.shipping_address
     address = shipping_address or checkout_info.billing_address
+<<<<<<< HEAD
     lines = get_checkout_lines_data(
         checkout_info, lines_info, config, tax_included, discounts
     )
@@ -522,6 +565,13 @@ def generate_request_data_from_checkout(
         and not voucher.apply_once_per_order
         else 0
     )
+=======
+    lines = generate_request_data_from_checkout_lines(checkout_info, lines_info, config)
+    if not lines:
+        return {}
+
+    discount_amount = _get_checkout_discount_amount(checkout_info, lines)
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 
     currency = checkout_info.checkout.currency
     customer_email = cast(str, checkout_info.get_customer_email())
@@ -538,8 +588,39 @@ def generate_request_data_from_checkout(
     return data
 
 
+def _get_checkout_discount_amount(checkout_info, lines):
+    """Return the discount amount for the checkout.
+
+    Return the discount amount from the entire order or shipping voucher, or from
+    order promotion discount if there is no voucher and any promotion is eligible.
+    """
+    discount_amount = Decimal("0")
+    if (voucher := checkout_info.voucher) or checkout_info.discounts:
+        # for apply_once_per_order vouchers the discount is already applied on lines
+        applicable_discount = True
+        if voucher:
+            applicable_discount = (
+                voucher.type != VoucherType.SPECIFIC_PRODUCT
+                and not voucher.apply_once_per_order
+            )
+
+            if voucher.type == VoucherType.SHIPPING:
+                # when the taxes are not calculated on shipping method, the shipping
+                # discount cannot by applied by plugin
+                applicable_discount = applicable_discount and SHIPPING_ITEM_CODE in {
+                    line["itemCode"] for line in lines
+                }
+
+        discount_amount = (
+            checkout_info.checkout.discount_amount
+            if applicable_discount
+            else Decimal("0")
+        )
+    return discount_amount
+
+
 def _fetch_new_taxes_data(
-    data: Dict[str, Dict], data_cache_key: str, config: AvataxConfiguration
+    data: dict[str, dict], data_cache_key: str, config: AvataxConfiguration
 ):
     transaction_url = urljoin(
         get_api_url(config.use_sandbox), "transactions/createoradjust"
@@ -560,7 +641,7 @@ def _fetch_new_taxes_data(
 
 
 def get_cached_response_or_fetch(
-    data: Dict[str, Dict],
+    data: dict[str, dict],
     token_in_cache: str,
     config: AvataxConfiguration,
     force_refresh: bool = False,
@@ -584,19 +665,19 @@ def get_cached_response_or_fetch(
 def get_checkout_tax_data(
     checkout_info: "CheckoutInfo",
     lines_info: Iterable["CheckoutLineInfo"],
-    tax_included: bool,
-    discounts,
     config: AvataxConfiguration,
-) -> Dict[str, Any]:
-    data = generate_request_data_from_checkout(
-        checkout_info, lines_info, config, tax_included, discounts=discounts
-    )
+) -> dict[str, Any]:
+    data = generate_request_data_from_checkout(checkout_info, lines_info, config)
     return get_cached_response_or_fetch(data, str(checkout_info.checkout.token), config)
 
 
+<<<<<<< HEAD
 def get_order_request_data(
     order: "Order", config: AvataxConfiguration, tax_included: bool
 ):
+=======
+def get_order_request_data(order: "Order", config: AvataxConfiguration):
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     if order.collection_point_id:
         address: Address = order.collection_point.address  # type: ignore
     else:
@@ -609,9 +690,13 @@ def get_order_request_data(
     )
     discount_amount = get_total_order_discount_excluding_shipping(order).amount
     discounted_lines = discount_amount != Decimal("0")
+<<<<<<< HEAD
     lines = get_order_lines_data(
         order, config, tax_included, discounted=discounted_lines
     )
+=======
+    lines = get_order_lines_data(order, config, discounted=discounted_lines)
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     # if there is no lines to sent we do not want to send the request to avalara
     if not lines:
         return {}
@@ -629,18 +714,18 @@ def get_order_request_data(
 
 
 def get_order_tax_data(
-    order: "Order", config: AvataxConfiguration, tax_included: bool, force_refresh=False
-) -> Dict[str, Any]:
-    data = get_order_request_data(order, config, tax_included)
+    order: "Order", config: AvataxConfiguration, force_refresh=False
+) -> dict[str, Any]:
+    data = get_order_request_data(order, config)
     response = get_cached_response_or_fetch(
-        data, "order_%s" % order.id, config, force_refresh
+        data, f"order_{order.id}", config, force_refresh
     )
     if response and "error" in response:
         raise TaxError(response.get("error"))
     return response
 
 
-def generate_tax_codes_dict(response: Dict[str, Any]) -> Dict[str, str]:
+def generate_tax_codes_dict(response: dict[str, Any]) -> dict[str, str]:
     tax_codes = {}
     for line in response.get("value", []):
         if line.get("isActive"):
@@ -673,9 +758,19 @@ def get_cached_tax_codes_or_fetch(
     return tax_codes
 
 
+def _get_product_tax_code(product: "Product", product_type: "ProductType"):
+    tax_code = None
+    if product.tax_class:
+        tax_code = retrieve_tax_code_from_meta(product.tax_class, default=None)
+    elif product_type.tax_class:
+        tax_code = retrieve_tax_code_from_meta(product_type.tax_class)
+    else:
+        tax_code = DEFAULT_TAX_CODE
+    return tax_code
+
+
 def retrieve_tax_code_from_meta(
-    obj: Union["Product", "ProductVariant", "ProductType"],
-    default: Optional[str] = DEFAULT_TAX_CODE,
+    obj: "TaxClass", default: Optional[str] = DEFAULT_TAX_CODE
 ):
     tax_code = obj.get_value_from_metadata(META_CODE_KEY, default)
     return tax_code

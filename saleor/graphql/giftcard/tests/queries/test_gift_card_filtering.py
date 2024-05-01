@@ -10,6 +10,7 @@ QUERY_GIFT_CARDS = """
             edges {
                 node {
                     id
+                    createdByEmail
                     last4CodeChars
                     product {
                         name
@@ -27,7 +28,7 @@ QUERY_GIFT_CARDS = """
 
 
 @pytest.mark.parametrize(
-    "filter_value, expected_gift_card_indexes",
+    ("filter_value", "expected_gift_card_indexes"),
     [
         (["test-tag", "tag"], [0, 2]),
         (["another-tag"], [1]),
@@ -141,7 +142,7 @@ def test_query_filter_gift_cards_by_used_by_user(
 
 
 @pytest.mark.parametrize(
-    "filter_value, expected_gift_card_indexes",
+    ("filter_value", "expected_gift_card_indexes"),
     [("PLN", [0]), ("USD", [1, 2]), ("EUR", []), ("", [0, 1, 2])],
 )
 def test_query_filter_gift_cards_by_currency(
@@ -183,7 +184,7 @@ def test_query_filter_gift_cards_by_currency(
 
 
 @pytest.mark.parametrize(
-    "filter_value, expected_gift_card_indexes",
+    ("filter_value", "expected_gift_card_indexes"),
     [
         (True, [0]),
         (False, [1, 2]),
@@ -228,7 +229,7 @@ def test_query_filter_gift_cards_by_is_active(
 
 
 @pytest.mark.parametrize(
-    "filter_value, expected_gift_card_indexes",
+    ("filter_value", "expected_gift_card_indexes"),
     [
         (True, [2]),
         (False, [0, 1]),
@@ -301,7 +302,7 @@ def test_query_filter_gift_cards_by_current_balance_no_currency_given(
 
 
 @pytest.mark.parametrize(
-    "filter_value, expected_gift_card_indexes",
+    ("filter_value", "expected_gift_card_indexes"),
     [
         ({"gte": 50}, [2]),
         ({"gte": 0, "lte": 50}, [0, 1]),
@@ -381,7 +382,7 @@ def test_query_filter_gift_cards_by_initial_balance_no_currency_given(
 
 
 @pytest.mark.parametrize(
-    "filter_value, expected_gift_card_indexes",
+    ("filter_value", "expected_gift_card_indexes"),
     [
         ({"gte": 90}, [2]),
         ({"gte": 0, "lte": 50}, [0, 1]),
@@ -495,3 +496,25 @@ def test_query_filter_gift_cards_by_metadata(
     content = get_graphql_content(response)
     data = content["data"]["giftCards"]["edges"]
     assert len(data) == 1
+
+
+def test_query_filter_gift_cards_by_created_by_email(
+    staff_api_client,
+    gift_card,
+    permission_manage_gift_card,
+):
+    # given
+    query = QUERY_GIFT_CARDS
+
+    variables = {"filter": {"createdByEmail": gift_card.created_by_email}}
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_gift_card]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["giftCards"]["edges"]
+    assert len(data) == 1
+    assert data[0]["node"]["createdByEmail"] == "test@example.com"

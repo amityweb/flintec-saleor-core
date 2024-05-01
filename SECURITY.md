@@ -6,13 +6,15 @@ The following releases of Saleor are currently supported.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.1.x   | :white_check_mark: |
-| < 3.1   | :x:                |
+| ≥ 3.14  | :white_check_mark: |
+| < 3.14  | :x:                |
 
 ## Reporting a Vulnerability
 
-Please DO NOT report security vulnerabilities using a public GitHub issue. If you believe you've found a security issue, please contact our security mailing list:
+Please DO NOT report security vulnerabilities using a public GitHub issue. If you believe you've found a security issue, please contact us through one of the following methods:
+- https://github.com/saleor/saleor/security/advisories
+- Through our mailing list: security@saleor.io
 
-security@saleor.io
+We do not currently have a bounty program in place, so we cannot offer monetary rewards for any reported problems.
 
-You will be credited as the reporter once a fix is ready to be published. At this time we do not have a bounty program in place so we are not able to offer monetary rewards for any problems reported.
+Whichever method you choose, you will be credited as the reporter once the announcement is published.

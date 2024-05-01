@@ -85,7 +85,6 @@ QUERY_ATTRIBUTE = """
                         }
                     }
                 }
-
             }
             valueRequired
             visibleInStorefront
@@ -188,7 +187,7 @@ def test_query_attribute_by_invalid_id(
     response = staff_api_client.post_graphql(QUERY_ATTRIBUTE, variables)
     content = get_graphql_content_from_response(response)
     assert len(content["errors"]) == 1
-    assert content["errors"][0]["message"] == f"Couldn't resolve id: {id}."
+    assert content["errors"][0]["message"] == f"Invalid ID: {id}. Expected: Attribute."
     assert content["data"]["attribute"] is None
 
 
@@ -549,15 +548,15 @@ def test_attributes_query_ids_not_exists(user_api_client, category):
 
 
 @pytest.mark.parametrize(
-    "attribute, expected_value",
-    (
+    ("attribute", "expected_value"),
+    [
         ("filterable_in_storefront", True),
         ("filterable_in_dashboard", True),
         ("visible_in_storefront", True),
         ("available_in_grid", True),
         ("value_required", False),
         ("storefront_search_position", 0),
-    ),
+    ],
 )
 def test_retrieving_the_restricted_attributes_restricted(
     staff_api_client,
@@ -566,9 +565,6 @@ def test_retrieving_the_restricted_attributes_restricted(
     attribute,
     expected_value,
 ):
-    """Checks if the attributes are restricted and if their default value
-    is the expected one."""
-
     attribute = to_camel_case(attribute)
     query = (
         """
@@ -668,7 +664,7 @@ def test_attributes_in_collection_query(
 
 
 @pytest.mark.parametrize(
-    "input_type, expected_with_choice_return",
+    ("input_type", "expected_with_choice_return"),
     [
         (AttributeInputType.DROPDOWN, True),
         (AttributeInputType.MULTISELECT, True),
@@ -713,3 +709,38 @@ def test_attributes_with_choice_flag(
         "-", "_"
     )
     assert content["data"]["attribute"]["withChoices"] == expected_with_choice_return
+
+
+QUERY_ATTRIBUTE_BY_EXTERNAL_REFERENCE = """
+    query($id: ID, $externalReference: String) {
+        attribute(id: $id, externalReference: $externalReference) {
+            id
+            externalReference
+        }
+    }
+"""
+
+
+def test_get_attribute_by_external_reference(
+    staff_api_client, color_attribute_without_values, permission_manage_products
+):
+    # given
+    attribute = color_attribute_without_values
+    ext_ref = "test-ext-id"
+    attribute.external_reference = ext_ref
+    attribute.save(update_fields=["external_reference"])
+    variables = {"externalReference": ext_ref}
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_ATTRIBUTE_BY_EXTERNAL_REFERENCE,
+        variables=variables,
+        permissions=(permission_manage_products,),
+        check_no_permissions=False,
+    )
+    content = get_graphql_content(response)
+
+    # then
+    data = content["data"]["attribute"]
+    assert data["externalReference"] == ext_ref
+    assert data["id"] == graphene.Node.to_global_id("Attribute", attribute.id)

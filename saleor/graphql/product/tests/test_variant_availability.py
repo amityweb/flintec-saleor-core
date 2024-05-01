@@ -9,7 +9,7 @@ from django_countries import countries
 from ....channel.utils import DEPRECATION_WARNING_MESSAGE
 from ....shipping.models import ShippingZone
 from ....warehouse import WarehouseClickAndCollectOption
-from ....warehouse.models import PreorderReservation, Reservation, Stock
+from ....warehouse.models import PreorderReservation, Reservation, Stock, Warehouse
 from ...tests.utils import get_graphql_content
 
 COUNTRY_CODE = "US"
@@ -180,8 +180,15 @@ def test_variant_quantity_available_without_country_code_and_no_channel_shipping
 def test_variant_quantity_available_no_country_warehouse_without_zone(
     api_client, variant_with_many_stocks, channel_USD, channel_PLN
 ):
+<<<<<<< HEAD
     """Ensure the warehouse without shipping zones is not counted in variant available
     quantity."""
+=======
+    """Test that available quantity only includes warehouses that belong to a shipping zone.
+
+    In this case, a channel is provided, but no country code.
+    """
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     # given
     assert variant_with_many_stocks.stocks.count() == 2
 
@@ -212,8 +219,15 @@ def test_variant_quantity_available_no_channel_and_no_country_warehouse_without_
     permission_manage_discounts,
     permission_manage_orders,
 ):
+<<<<<<< HEAD
     """Ensure the warehouse without shipping zones is not counted in variant available
     quantity."""
+=======
+    """Test that available quantity only includes warehouses that belong to a shipping zone.
+
+    In this case, neither a channel nor country code is provided.
+    """
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     # given
     assert variant_with_many_stocks.stocks.count() == 2
 
@@ -250,9 +264,13 @@ def test_variant_quantity_available_only_warehouse_without_zone_no_channel_no_co
     permission_manage_discounts,
     permission_manage_orders,
 ):
+<<<<<<< HEAD
     """Ensure the quantity available for variant if equal to 0 when there is only one
     stock with warehouse without any shipping zone assigned.
     """
+=======
+    """Test that availability is 0 if no warehouses belong to a shipping zone."""
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     # given
     assert variant.stocks.count() == 1
     # clear shipping zones for variant warehouses
@@ -290,6 +308,28 @@ QUERY_VARIANT_AVAILABILITY = """
 def test_variant_quantity_available_with_country_code(
     api_client, variant_with_many_stocks, channel_USD
 ):
+    variables = {
+        "id": graphene.Node.to_global_id("ProductVariant", variant_with_many_stocks.pk),
+        "address": {"country": COUNTRY_CODE},
+        "channel": channel_USD.slug,
+    }
+    response = api_client.post_graphql(QUERY_VARIANT_AVAILABILITY, variables)
+    content = get_graphql_content(response)
+    variant_data = content["data"]["productVariant"]
+    assert variant_data["deprecatedByCountry"] == 7
+    assert variant_data["byAddress"] == 7
+
+
+def test_variant_quantity_available_with_country_code_warehouse_in_many_shipping_zones(
+    api_client, variant_with_many_stocks, channel_USD, shipping_zone_JPY
+):
+    shipping_zone = ShippingZone.objects.create(
+        name="Test",
+        countries=[code for code, name in countries],
+    )
+    shipping_zone.channels.add(channel_USD)
+    warehouse = Warehouse.objects.get(slug="warehouse2")
+    warehouse.shipping_zones.add(shipping_zone)
     variables = {
         "id": graphene.Node.to_global_id("ProductVariant", variant_with_many_stocks.pk),
         "address": {"country": COUNTRY_CODE},
@@ -359,8 +399,10 @@ def test_variant_quantity_available_with_country_code_only_negative_quantity(
     warehouse_for_cc,
     warehouse,
 ):
-    """Ensure the quantity from the collection point without shipping zone is not
-    returned when the country code is given."""
+    """Test that click-and-collect warehouse quantities are ignored when not part of the shipping zone.
+
+    In this case, the non-C&C warehouse has negative quantity.
+    """
     # given
     quantity_cc = 7
     # stock for local collection point warehouse
@@ -398,8 +440,10 @@ def test_variant_quantity_available_with_country_code_and_cc_warehouse_without_z
     warehouse_for_cc,
     warehouse,
 ):
-    """Ensure the quantity from the collection point without shipping zone is not
-    returned when the country code is given."""
+    """Test that click-and-collect warehouse quantities are ignored when not part of the shipping zone.
+
+    In this case, both quantities are positive.
+    """
     # given
     quantity_cc = 7
     # stock for local collection point warehouse
@@ -433,8 +477,10 @@ def test_variant_quantity_available_with_country_code_and_cc_warehouse_without_z
 def test_variant_quantity_available_with_country_code_and_local_cc_warehouse_with_zone(
     api_client, variant, channel_USD, warehouse_for_cc, warehouse, shipping_zone
 ):
-    """Ensure the quantity from the local collection point without shipping zone
-    is returned."""
+    """Test that availability includes click-and-collect warehouse that belongs to the shipping zone.
+
+    In this case, both quantities are positive.
+    """
     # given
     quantity_cc = 7
     # stock for local collection point warehouse
@@ -469,8 +515,10 @@ def test_variant_quantity_available_with_country_code_and_local_cc_warehouse_wit
 def test_variant_qty_available_with_country_code_and_local_cc_warehouse_negative_qty(
     api_client, variant, channel_USD, warehouse_for_cc, warehouse, shipping_zone
 ):
-    """Ensure the quantity from the local collection point without shipping zone
-    is returned."""
+    """Test that availability includes click-and-collect warehouse that belongs to the shipping zone.
+
+    In this case, the non-C&C warehouse has negative quantity.
+    """
     # given
     quantity_cc = 7
     # stock for local collection point warehouse

@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .....core.http_client import HTTPClient
 from .... import PaymentError
 
 # https://developer.apple.com/documentation/apple_pay_on_the_web/
@@ -70,28 +71,29 @@ def initialize_apple_pay_session(
     display_name: str,
     certificate: str,
 ) -> dict:
-
     request_data = {
         "merchantIdentifier": merchant_identifier,
         "displayName": display_name,
         "initiative": "web",
         "initiativeContext": domain,
     }
-    request_exception = False
-    response = None
     try:
         response = make_request_to_initialize_apple_pay(
             validation_url, request_data, certificate
         )
     except requests.exceptions.RequestException:
         logger.warning("Failed to fetch the Apple Pay session", exc_info=True)
-        request_exception = True
-    if request_exception or response and not response.ok:
         raise PaymentError(
             "Unable to create Apple Pay payment session. Make sure that input data "
             " and certificate are correct."
         )
-    return response.json()  # type: ignore
+    if not response.ok:
+        # FIXME: shouldn't we forward some details here?
+        raise PaymentError(
+            "Unable to create Apple Pay payment session. Make sure that input data "
+            " and certificate are correct."
+        )
+    return response.json()
 
 
 def make_request_to_initialize_apple_pay(
@@ -100,11 +102,17 @@ def make_request_to_initialize_apple_pay(
     with NamedTemporaryFile() as f:
         f.write(certificate.encode())
         f.flush()  # ensure all data written
-        return requests.post(validation_url, json=request_data, cert=f.name)
+        return HTTPClient.send_request(
+            "POST",
+            validation_url,
+            json=request_data,
+            cert=f.name,
+            allow_redirects=False,
+        )
 
 
 def initialize_apple_pay(payment_data: dict, certificate: str) -> dict:
-    # The apple pay on the web requires additional step
+    # The Apple Pay on the web requires additional step
     validation_url = payment_data.get("validationUrl", "")
     merchant_identifier = payment_data.get("merchantIdentifier", "")
     domain = payment_data.get("domain", "")

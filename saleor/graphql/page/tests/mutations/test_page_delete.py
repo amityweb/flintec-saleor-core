@@ -1,4 +1,6 @@
+from functools import partial
 from unittest import mock
+from unittest.mock import ANY
 
 import graphene
 import pytest
@@ -8,7 +10,6 @@ from freezegun import freeze_time
 from .....attribute.models import AttributeValue
 from .....attribute.utils import associate_attribute_values_to_instance
 from .....webhook.event_types import WebhookEventAsyncType
-from .....webhook.payloads import generate_page_payload
 from ....tests.utils import get_graphql_content
 
 PAGE_DELETE_MUTATION = """
@@ -63,13 +64,17 @@ def test_page_delete_trigger_webhook(
     assert data["page"]["title"] == page.title
     with pytest.raises(page._meta.model.DoesNotExist):
         page.refresh_from_db()
-    expected_data = generate_page_payload(page, staff_api_client.user)
     mocked_webhook_trigger.assert_called_once_with(
-        expected_data,
+        None,
         WebhookEventAsyncType.PAGE_DELETED,
         [any_webhook],
         page,
         SimpleLazyObject(lambda: staff_api_client.user),
+        legacy_data_generator=ANY,
+        allow_replica=False,
+    )
+    assert isinstance(
+        mocked_webhook_trigger.call_args.kwargs["legacy_data_generator"], partial
     )
 
 
@@ -83,7 +88,9 @@ def test_page_delete_with_file_attribute(
     page_type = page.page_type
     page_type.page_attributes.add(page_file_attribute)
     existing_value = page_file_attribute.values.first()
-    associate_attribute_values_to_instance(page, page_file_attribute, existing_value)
+    associate_attribute_values_to_instance(
+        page, {page_file_attribute.pk: [existing_value]}
+    )
 
     variables = {"id": graphene.Node.to_global_id("Page", page.id)}
 
@@ -122,7 +129,7 @@ def test_page_delete_removes_reference_to_product(
     )
 
     associate_attribute_values_to_instance(
-        product, product_type_page_reference_attribute, attr_value
+        product, {product_type_page_reference_attribute.pk: [attr_value]}
     )
 
     reference_id = graphene.Node.to_global_id("Page", page.pk)
@@ -162,7 +169,7 @@ def test_page_delete_removes_reference_to_product_variant(
     )
 
     associate_attribute_values_to_instance(
-        variant, product_type_page_reference_attribute, attr_value
+        variant, {product_type_page_reference_attribute.pk: [attr_value]}
     )
 
     reference_id = graphene.Node.to_global_id("Page", page.pk)
@@ -204,7 +211,7 @@ def test_page_delete_removes_reference_to_page(
     )
 
     associate_attribute_values_to_instance(
-        page, page_type_page_reference_attribute, attr_value
+        page, {page_type_page_reference_attribute.pk: [attr_value]}
     )
 
     reference_id = graphene.Node.to_global_id("Page", page_ref.pk)

@@ -1,32 +1,40 @@
-from typing import Dict, List
-
 import graphene
 from django.forms import ValidationError
 
 from ....checkout.error_codes import CheckoutErrorCode
+from ....checkout.fetch import CheckoutLineInfo
 from ....warehouse.reservations import is_reservation_enabled
+<<<<<<< HEAD
+=======
+from ....webhook.event_types import WebhookEventAsyncType
+from ...app.dataloaders import get_app_promise
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 from ...checkout.types import CheckoutLine
+from ...core import ResolveInfo
 from ...core.descriptions import (
     ADDED_IN_31,
     ADDED_IN_34,
     ADDED_IN_36,
     DEPRECATED_IN_3X_INPUT,
-    PREVIEW_FEATURE,
 )
+from ...core.doc_category import DOC_CATEGORY_CHECKOUT
 from ...core.scalars import UUID, PositiveDecimal
-from ...core.types import CheckoutError, NonNullList
+from ...core.types import BaseInputObjectType, CheckoutError, NonNullList
+from ...core.utils import WebhookEventInfo
 from ...core.validators import validate_one_of_args_is_in_mutation
 from ...product.types import ProductVariant
+from ...site.dataloaders import get_site_promise
 from ..types import Checkout
 from .checkout_lines_add import CheckoutLinesAdd
 from .utils import (
+    CheckoutLineData,
     check_lines_quantity,
     get_variants_and_total_quantities,
     group_lines_input_data_on_update,
 )
 
 
-class CheckoutLineUpdateInput(graphene.InputObjectType):
+class CheckoutLineUpdateInput(BaseInputObjectType):
     variant_id = graphene.ID(
         required=False,
         description=(
@@ -47,13 +55,15 @@ class CheckoutLineUpdateInput(graphene.InputObjectType):
             "with `HANDLE_CHECKOUTS` permission. When the line with the same variant "
             "will be provided multiple times, the last price will be used."
             + ADDED_IN_31
-            + PREVIEW_FEATURE
         ),
     )
     line_id = graphene.ID(
         description="ID of the line." + ADDED_IN_36,
         required=False,
     )
+
+    class Meta:
+        doc_category = DOC_CATEGORY_CHECKOUT
 
 
 class CheckoutLinesUpdate(CheckoutLinesAdd):
@@ -85,8 +95,15 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
 
     class Meta:
         description = "Updates checkout line in the existing checkout."
+        doc_category = DOC_CATEGORY_CHECKOUT
         error_type_class = CheckoutError
         error_type_field = "checkout_errors"
+        webhook_events_info = [
+            WebhookEventInfo(
+                type=WebhookEventAsyncType.CHECKOUT_UPDATED,
+                description="A checkout was updated.",
+            )
+        ]
 
     @classmethod
     def validate_checkout_lines(
@@ -102,18 +119,18 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
         variants, quantities = get_variants_and_total_quantities(
             variants, checkout_lines_data, quantity_to_update_check=True
         )
-
+        site = get_site_promise(info.context).get()
         check_lines_quantity(
             variants,
             quantities,
             country,
             channel_slug,
-            info.context.site.settings.limit_quantity_per_checkout,
+            site.settings.limit_quantity_per_checkout,
             delivery_method_info=delivery_method_info,
             allow_zero_quantity=True,
             existing_lines=lines,
             replace=True,
-            check_reservations=is_reservation_enabled(info.context.site.settings),
+            check_reservations=is_reservation_enabled(site.settings),
         )
 
     @classmethod
@@ -124,11 +141,14 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
         variants,
         checkout_lines_data,
         checkout_info,
-        lines,
+        lines_info,
         manager,
-        discounts,
         replace,
     ):
+<<<<<<< HEAD
+=======
+        app = get_app_promise(info.context).get()
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
         # if the requestor is not app, the quantity is required for all lines
         if not info.context.app:
             if any(
@@ -146,25 +166,24 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
                     }
                 )
 
+        cls._validate_gift_line(checkout_lines_data, lines_info)
         return super().clean_input(
             info,
             checkout,
             variants,
             checkout_lines_data,
             checkout_info,
-            lines,
+            lines_info,
             manager,
-            discounts,
             replace,
         )
 
     @classmethod
-    def perform_mutation(
-        cls, root, info, lines, checkout_id=None, token=None, id=None, replace=True
+    def perform_mutation(  # type: ignore[override]
+        cls, root, info: ResolveInfo, /, *, lines, checkout_id=None, token=None, id=None
     ):
         for line in lines:
             validate_one_of_args_is_in_mutation(
-                CheckoutErrorCode,
                 "line_id",
                 line.get("line_id"),
                 "variant_id",
@@ -172,11 +191,17 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
             )
 
         return super().perform_mutation(
-            root, info, lines, checkout_id, token, id, replace=True
+            root,
+            info,
+            lines=lines,
+            checkout_id=checkout_id,
+            token=token,
+            id=id,
+            replace=True,
         )
 
     @classmethod
-    def _get_variants_from_lines_input(cls, lines: List[Dict]) -> List[ProductVariant]:
+    def _get_variants_from_lines_input(cls, lines: list[dict]) -> list[ProductVariant]:
         """Return list of ProductVariant objects.
 
         Uses variants ids or lines ids provided in CheckoutLineUpdateInput to
@@ -205,3 +230,27 @@ class CheckoutLinesUpdate(CheckoutLinesAdd):
     @classmethod
     def _get_grouped_lines_data(cls, lines, existing_lines_info):
         return group_lines_input_data_on_update(lines, existing_lines_info)
+
+    @classmethod
+    def _validate_gift_line(
+        cls, lines_input: list[CheckoutLineData], lines_info: list[CheckoutLineInfo]
+    ):
+        existing_gift_ids = [
+            str(line_info.line.id) for line_info in lines_info if line_info.line.is_gift
+        ]
+        if gift_lines_to_update := [
+            line for line in lines_input if line.line_id in existing_gift_ids
+        ]:
+            global_ids = [
+                graphene.Node.to_global_id("CheckoutLine", line.line_id)
+                for line in gift_lines_to_update
+            ]
+            raise ValidationError(
+                {
+                    "line_id": ValidationError(
+                        "Lines marked as gift can't be edited.",
+                        code=CheckoutErrorCode.NON_EDITABLE_GIFT_LINE.value,
+                        params={"lines": global_ids},
+                    )
+                }
+            )

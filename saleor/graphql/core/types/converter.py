@@ -8,10 +8,15 @@ from django.core.exceptions import ImproperlyConfigured
 
 from ..filters import (
     EnumFilter,
+    EnumWhereFilter,
     GlobalIDFormField,
     GlobalIDMultipleChoiceField,
     ListObjectTypeFilter,
+    ListObjectTypeWhereFilter,
     ObjectTypeFilter,
+    ObjectTypeWhereFilter,
+    OperationObjectTypeFilter,
+    OperationObjectTypeWhereFilter,
 )
 from .common import NonNullList
 
@@ -26,8 +31,8 @@ def get_form_field_description(field):
 @singledispatch
 def convert_form_field(field):
     raise ImproperlyConfigured(
-        "Don't know how to convert the Django form field %s (%s) "
-        "to Graphene type" % (field, field.__class__)
+        f"Don't know how to convert the Django form field {field} ({field.__class__}) "
+        "to Graphene type"
     )
 
 
@@ -51,7 +56,11 @@ def convert_form_field_to_float(field):
     )
 
 
+@convert_form_field.register(OperationObjectTypeWhereFilter)
+@convert_form_field.register(OperationObjectTypeFilter)
+@convert_form_field.register(ObjectTypeWhereFilter)
 @convert_form_field.register(ObjectTypeFilter)
+@convert_form_field.register(EnumWhereFilter)
 @convert_form_field.register(EnumFilter)
 def convert_convert_enum(field):
     return field.input_class(description=get_form_field_description(field))
@@ -62,6 +71,7 @@ def convert_form_field_to_id(field):
     return graphene.ID(required=field.required)
 
 
+@convert_form_field.register(ListObjectTypeWhereFilter)
 @convert_form_field.register(ListObjectTypeFilter)
 def convert_list_object_type(field):
     return NonNullList(field.input_class, description=get_form_field_description(field))

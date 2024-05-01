@@ -1,10 +1,11 @@
-from typing import Dict, Optional
+from typing import Optional
 
 from django.core.exceptions import ValidationError
 
 from ...account.forms import get_address_form
 from ...account.models import Address
 from ...account.validators import validate_possible_number
+from ..core import ResolveInfo
 
 
 class I18nMixin:
@@ -18,7 +19,7 @@ class I18nMixin:
         pass
 
     @classmethod
-    def clean_instance(cls, info, instance):
+    def clean_instance(cls, _info: ResolveInfo, _instance):
         pass
 
     @classmethod
@@ -48,7 +49,7 @@ class I18nMixin:
                         }
                     ) from exc
 
-        address_form, _ = get_address_form(
+        address_form = get_address_form(
             address_data,
             address_data.get("country"),
             instance=instance,
@@ -60,13 +61,19 @@ class I18nMixin:
             )
             if errors:
                 raise ValidationError(errors)
+
+        if address_form.cleaned_data["metadata"] is None:
+            address_form.cleaned_data["metadata"] = {}
+        if address_form.cleaned_data["private_metadata"] is None:
+            address_form.cleaned_data["private_metadata"] = {}
+
         return address_form
 
     @classmethod
     def attach_params_to_address_form_errors(
         cls,
         address_form,
-        params: Dict[str, str],
+        params: dict[str, str],
         values_check=True,
         required_check=True,
     ):
@@ -102,7 +109,7 @@ class I18nMixin:
         info=None,
         format_check=True,
         required_check=True,
-        enable_normalization=True
+        enable_normalization=True,
     ):
         if address_data.get("country") is None:
             params = {"address_type": address_type} if address_type else {}

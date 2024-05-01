@@ -1,28 +1,46 @@
 from collections import defaultdict
+from collections.abc import Iterable
+from typing import cast
 
 from django.db.models import F
 
-from ...order.models import Fulfillment, FulfillmentLine, Order, OrderEvent, OrderLine
-from ...payment.models import TransactionItem
+from ...order.models import (
+    Fulfillment,
+    FulfillmentLine,
+    Order,
+    OrderEvent,
+    OrderGrantedRefund,
+    OrderGrantedRefundLine,
+    OrderLine,
+)
+from ...payment.models import TransactionEvent, TransactionItem
 from ...warehouse.models import Allocation
 from ..core.dataloaders import DataLoader
 
 
-class OrderLinesByVariantIdAndChannelIdLoader(DataLoader):
+class OrderLinesByVariantIdAndChannelIdLoader(
+    DataLoader[tuple[int, int], list[OrderLine]]
+):
     context_key = "orderline_by_variant_and_channel"
 
-    def batch_load(self, keys):
+    def batch_load(self, keys: Iterable[tuple[int, int]]):
         channel_ids = [key[1] for key in keys]
         variant_ids = [key[0] for key in keys]
         order_lines = (
             OrderLine.objects.using(self.database_connection_name)
             .filter(order__channel_id__in=channel_ids, variant_id__in=variant_ids)
             .annotate(channel_id=F("order__channel_id"))
+            .order_by("created_at", "id")
         )
 
-        order_line_by_variant_and_channel_map = defaultdict(list)
+        order_line_by_variant_and_channel_map: defaultdict[
+            tuple[int, int], list[OrderLine]
+        ] = defaultdict(list)
         for order_line in order_lines:
-            key = (order_line.variant_id, order_line.channel_id)
+            key = (
+                cast(int, order_line.variant_id),
+                getattr(order_line, "channel_id", 0),  # annotation
+            )
             order_line_by_variant_and_channel_map[key].append(order_line)
         return [order_line_by_variant_and_channel_map[key] for key in keys]
 
@@ -33,6 +51,18 @@ class OrderByIdLoader(DataLoader):
     def batch_load(self, keys):
         orders = Order.objects.using(self.database_connection_name).in_bulk(keys)
         return [orders.get(order_id) for order_id in keys]
+
+
+class OrderByNumberLoader(DataLoader):
+    context_key = "order_by_number"
+
+    def batch_load(self, keys):
+        orders = (
+            Order.objects.using(self.database_connection_name)
+            .filter(number__in=keys)
+            .in_bulk(field_name="number")
+        )
+        return [orders.get(number) for number in keys]
 
 
 class OrdersByUserLoader(DataLoader):
@@ -86,6 +116,48 @@ class OrderEventsByOrderIdLoader(DataLoader):
         for event in events.iterator():
             events_map[event.order_id].append(event)
         return [events_map.get(order_id, []) for order_id in keys]
+
+
+class OrderEventsByIdLoader(DataLoader):
+    context_key = "orderevents_by_id"
+
+    def batch_load(self, keys):
+        events = (
+            OrderEvent.objects.using(self.database_connection_name)
+            .filter(id__in=keys)
+            .in_bulk()
+        )
+        return [events.get(event_id) for event_id in keys]
+
+
+class OrderGrantedRefundsByOrderIdLoader(DataLoader):
+    context_key = "order_granted_refunds_by_order_id"
+
+    def batch_load(self, keys):
+        refunds = OrderGrantedRefund.objects.using(
+            self.database_connection_name
+        ).filter(order_id__in=keys)
+        refunds_map = defaultdict(list)
+
+        for refund in refunds.iterator():
+            refunds_map[refund.order_id].append(refund)
+        return [refunds_map.get(order_id, []) for order_id in keys]
+
+
+class OrderGrantedRefundLinesByOrderGrantedRefundIdLoader(DataLoader):
+    context_key = "order_granted_refund_lines_by_granted_refund_id"
+
+    def batch_load(self, keys):
+        refund_lines = OrderGrantedRefundLine.objects.using(
+            self.database_connection_name
+        ).filter(granted_refund_id__in=keys)
+        refund_lines_map = defaultdict(list)
+
+        for refund_line in refund_lines.iterator():
+            refund_lines_map[refund_line.granted_refund_id].append(refund_line)
+        return [
+            refund_lines_map.get(granted_refund_id, []) for granted_refund_id in keys
+        ]
 
 
 class AllocationsByOrderLineIdLoader(DataLoader):
@@ -162,3 +234,18 @@ class TransactionItemsByOrderIDLoader(DataLoader):
         for transaction in transactions:
             transactions_map[transaction.order_id].append(transaction)
         return [transactions_map.get(order_id, []) for order_id in keys]
+
+
+class TransactionEventsByOrderGrantedRefundIdLoader(DataLoader):
+    context_key = "transaction_event_by_order_granted_refund_id"
+
+    def batch_load(self, keys):
+        events = (
+            TransactionEvent.objects.using(self.database_connection_name)
+            .filter(related_granted_refund__in=keys)
+            .order_by("-created_at")
+        )
+        event_map = defaultdict(list)
+        for event in events:
+            event_map[event.related_granted_refund_id].append(event)
+        return [event_map.get(granted_refund_id, []) for granted_refund_id in keys]

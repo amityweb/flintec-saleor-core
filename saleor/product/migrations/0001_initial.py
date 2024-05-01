@@ -1,15 +1,10 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 from decimal import Decimal
 
 import django.core.validators
-import versatileimagefield.fields
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = []
 
     operations = [
@@ -44,7 +39,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "image",
-                    versatileimagefield.fields.VersatileImageField(
+                    models.ImageField(
                         upload_to="attributes",
                         null=True,
                         verbose_name="image",
@@ -179,15 +174,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "image",
-                    versatileimagefield.fields.VersatileImageField(
-                        upload_to="products"
-                    ),
+                    models.ImageField(upload_to="products"),
                 ),
                 (
                     "ppoi",
-                    versatileimagefield.fields.PPOIField(
-                        default="0.5x0.5", max_length=20, editable=False
-                    ),
+                    models.CharField(default="0.5x0.5", max_length=20, editable=False),
                 ),
                 (
                     "alt",

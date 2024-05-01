@@ -1,5 +1,7 @@
+from collections import defaultdict
+from collections.abc import Iterable
 from decimal import Decimal
-from typing import TYPE_CHECKING, Iterable, List, Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlencode
 
 from django.forms import model_to_dict
@@ -8,13 +10,13 @@ from ..account.models import StaffNotificationRecipient
 from ..core.notification.utils import get_site_context
 from ..core.notify_events import NotifyEventType
 from ..core.prices import quantize_price, quantize_price_fields
-from ..core.utils.url import prepare_url
-from ..discount import OrderDiscountType
+from ..core.utils.url import build_absolute_uri, prepare_url
+from ..discount import DiscountType
 from ..graphql.core.utils import to_global_id_or_none
 from ..product import ProductMediaTypes
 from ..product.models import DigitalContentUrl, Product, ProductMedia, ProductVariant
-from ..product.product_images import get_product_image_thumbnail_url
 from ..thumbnail import THUMBNAIL_SIZES
+from ..thumbnail.utils import get_image_or_proxy_url
 from .models import FulfillmentLine, Order, OrderLine
 
 if TYPE_CHECKING:
@@ -24,12 +26,17 @@ if TYPE_CHECKING:
 
 def get_image_payload(instance: ProductMedia):
     return {
-        size: get_product_image_thumbnail_url(instance, size)
+        # This is temporary solution, the get_product_image_thumbnail_url
+        # should be optimize - we should fetch all thumbnails at once instead of
+        # fetching thumbnails by one for each size
+        str(size): build_absolute_uri(
+            get_image_or_proxy_url(None, str(instance.id), "ProductMedia", size, None)
+        )
         for size in THUMBNAIL_SIZES
     }
 
 
-def get_default_images_payload(images: List[ProductMedia]):
+def get_default_images_payload(images: list[ProductMedia]):
     first_image_payload = None
     first_image = images[0] if images else None
     if first_image:
@@ -40,16 +47,23 @@ def get_default_images_payload(images: List[ProductMedia]):
     return {"first_image": first_image_payload, "images": images_payload}
 
 
-def get_product_attributes(product):
-    attributes = product.attributes.all()
+def get_product_attributes_payload(product):
+    attribute_products = product.product_type.attributeproduct.all()
+    assigned_values = product.attributevalues.all()
+
+    values_map = defaultdict(list)
+    for av in assigned_values:
+        values_map[av.value.attribute_id].append(av.value)
+
     attributes_payload = []
-    for attr in attributes:
+    for attribute_product in attribute_products:
+        attr = attribute_product.attribute
         attributes_payload.append(
             {
                 "assignment": {
                     "attribute": {
-                        "slug": attr.assignment.attribute.slug,
-                        "name": attr.assignment.attribute.name,
+                        "slug": attr.slug,
+                        "name": attr.name,
                     }
                 },
                 "values": [
@@ -59,7 +73,7 @@ def get_product_attributes(product):
                         "slug": value.slug,
                         "file_url": value.file_url,
                     }
-                    for value in attr.values.all()
+                    for value in values_map[attr.id]
                 ],
             }
         )
@@ -71,7 +85,7 @@ def get_product_payload(product: Product):
     images = [media for media in all_media if media.type == ProductMediaTypes.IMAGE]
     return {
         "id": to_global_id_or_none(product),
-        "attributes": get_product_attributes(product),
+        "attributes": get_product_attributes_payload(product),
         "weight": str(product.weight or ""),
         **get_default_images_payload(images),
     }
@@ -91,10 +105,10 @@ def get_product_variant_payload(variant: ProductVariant):
 
 
 def get_order_line_payload(line: "OrderLine"):
-    digital_url = ""
+    digital_url: Optional[str] = None
     if line.is_digital:
         content = DigitalContentUrl.objects.filter(line=line).first()
-        digital_url = content.get_absolute_url() if content else None  # type: ignore
+        digital_url = content.get_absolute_url() if content else None
     variant_dependent_fields = {}
     if line.variant:
         variant_dependent_fields = {
@@ -105,11 +119,11 @@ def get_order_line_payload(line: "OrderLine"):
 
     return {
         "id": to_global_id_or_none(line),
-        "product": variant_dependent_fields.get("product"),  # type: ignore
+        "product": variant_dependent_fields.get("product"),
         "product_name": line.product_name,
         "translated_product_name": line.translated_product_name or line.product_name,
         "variant_name": line.variant_name,
-        "variant": variant_dependent_fields.get("variant"),  # type: ignore
+        "variant": variant_dependent_fields.get("variant"),
         "translated_variant_name": line.translated_variant_name or line.variant_name,
         "product_sku": line.product_sku,
         "product_variant_id": line.product_variant_id,
@@ -132,6 +146,7 @@ def get_order_line_payload(line: "OrderLine"):
         "unit_discount_reason": line.unit_discount_reason,
         "unit_discount_type": line.unit_discount_type,
         "unit_discount_amount": line.unit_discount_amount,
+        "metadata": line.metadata,
     }
 
 
@@ -182,7 +197,7 @@ def get_discounts_payload(order):
             "reason": order_discount.reason,
         }
         all_discounts.append(dicount_obj)
-        if order_discount.type == OrderDiscountType.VOUCHER:
+        if order_discount.type == DiscountType.VOUCHER:
             voucher_discount = dicount_obj
         discount_amount += order_discount.amount_value
 
@@ -228,14 +243,17 @@ def get_default_order_payload(order: "Order", redirect_url: str = ""):
     order_details_url = ""
     if redirect_url:
         order_details_url = prepare_order_details_url(order, redirect_url)
-    subtotal = order.get_subtotal()
+    subtotal = order.subtotal
     tax = order.total_gross_amount - order.total_net_amount or Decimal(0)
 
     lines = order.lines.prefetch_related(
-        "variant__product__media",
         "variant__media",
-        "variant__product__attributes__assignment__attribute",
-        "variant__product__attributes__values",
+        "variant__product__media",
+        "variant__product__attributevalues",
+        "variant__product__attributevalues__value",
+        "variant__product__product_type",
+        "variant__product__product_type__attributeproduct",
+        "variant__product__product_type__attributeproduct__attribute",
     ).all()
     currency = order.currency
     quantize_price_fields(order, fields=ORDER_PRICE_FIELDS, currency=currency)
@@ -368,22 +386,27 @@ def send_fulfillment_update(order, fulfillment, manager):
 def send_payment_confirmation(order_info, manager):
     """Send notification with the payment confirmation."""
     payment = order_info.payment
-    payment_currency = payment.currency
     payload = {
         "order": get_default_order_payload(order_info.order),
         "recipient_email": order_info.customer_email,
-        "payment": {
-            "created": payment.created_at,
-            "modified": payment.modified_at,
-            "charge_status": payment.charge_status,
-            "total": quantize_price(payment.total, payment_currency),
-            "captured_amount": quantize_price(
-                payment.captured_amount, payment_currency
-            ),
-            "currency": payment_currency,
-        },
         **get_site_context(),
     }
+    if payment:
+        payment_currency = payment.currency
+        payload.update(
+            {
+                "payment": {
+                    "created": payment.created_at,
+                    "modified": payment.modified_at,
+                    "charge_status": payment.charge_status,
+                    "total": quantize_price(payment.total, payment_currency),
+                    "captured_amount": quantize_price(
+                        payment.captured_amount, payment_currency
+                    ),
+                    "currency": payment_currency,
+                }
+            }
+        )
     manager.notify(
         NotifyEventType.ORDER_PAYMENT_CONFIRMATION,
         payload,

@@ -1,18 +1,19 @@
 from datetime import datetime, timedelta
+from functools import partial
 from unittest import mock
+from unittest.mock import ANY
 
 import graphene
 import pytz
+from django.conf import settings
 from django.utils.functional import SimpleLazyObject
 from django.utils.text import slugify
 from freezegun import freeze_time
 
 from .....page.error_codes import PageErrorCode
 from .....page.models import Page, PageType
-from .....tests.consts import TEST_SERVER_DOMAIN
 from .....tests.utils import dummy_editorjs
 from .....webhook.event_types import WebhookEventAsyncType
-from .....webhook.payloads import generate_page_payload
 from ....tests.utils import get_graphql_content
 
 CREATE_PAGE_MUTATION = """
@@ -71,6 +72,7 @@ def test_page_create_mutation(staff_api_client, permission_manage_pages, page_ty
     tag_attr = page_type.page_attributes.get(name="tag")
     tag_value_slug = tag_attr.values.first().slug
     tag_attr_id = graphene.Node.to_global_id("Attribute", tag_attr.id)
+    tag_value_name = tag_attr.values.first().name
 
     # Add second attribute
     size_attr = page_type.page_attributes.get(name="Page size")
@@ -86,7 +88,7 @@ def test_page_create_mutation(staff_api_client, permission_manage_pages, page_ty
             "slug": page_slug,
             "pageType": page_type_id,
             "attributes": [
-                {"id": tag_attr_id, "values": [tag_value_slug]},
+                {"id": tag_attr_id, "values": [tag_value_name]},
                 {"id": size_attr_id, "values": [non_existent_attr_value]},
             ],
         }
@@ -126,6 +128,7 @@ def test_page_create_mutation_with_published_at_date(
     # Default attributes defined in product_type fixture
     tag_attr = page_type.page_attributes.get(name="tag")
     tag_value_slug = tag_attr.values.first().slug
+    tag_value_name = tag_attr.values.first().name
     tag_attr_id = graphene.Node.to_global_id("Attribute", tag_attr.id)
 
     # Add second attribute
@@ -143,7 +146,7 @@ def test_page_create_mutation_with_published_at_date(
             "slug": page_slug,
             "pageType": page_type_id,
             "attributes": [
-                {"id": tag_attr_id, "values": [tag_value_slug]},
+                {"id": tag_attr_id, "values": [tag_value_name]},
                 {"id": size_attr_id, "values": [non_existent_attr_value]},
             ],
         }
@@ -212,14 +215,18 @@ def test_page_create_trigger_page_webhook(
     assert data["page"]["isPublished"] == page_is_published
     assert data["page"]["pageType"]["id"] == page_type_id
     page = Page.objects.first()
-    expected_data = generate_page_payload(page, staff_api_client.user)
 
     mocked_webhook_trigger.assert_called_once_with(
-        expected_data,
+        None,
         WebhookEventAsyncType.PAGE_CREATED,
         [any_webhook],
         page,
         SimpleLazyObject(lambda: staff_api_client.user),
+        legacy_data_generator=ANY,
+        allow_replica=False,
+    )
+    assert isinstance(
+        mocked_webhook_trigger.call_args.kwargs["legacy_data_generator"], partial
     )
 
 
@@ -356,7 +363,11 @@ def test_page_create_mutation_empty_attribute_value(
 
 
 def test_create_page_with_file_attribute(
-    staff_api_client, permission_manage_pages, page_type, page_file_attribute
+    staff_api_client,
+    permission_manage_pages,
+    page_type,
+    page_file_attribute,
+    site_settings,
 ):
     # given
     page_slug = "test-slug"
@@ -373,6 +384,9 @@ def test_create_page_with_file_attribute(
     attr_value = page_file_attribute.values.first()
 
     values_count = page_file_attribute.values.count()
+    file_url = (
+        f"http://{site_settings.site.domain}{settings.MEDIA_URL}{attr_value.file_url}"
+    )
 
     # test creating root page
     variables = {
@@ -382,7 +396,7 @@ def test_create_page_with_file_attribute(
             "isPublished": page_is_published,
             "slug": page_slug,
             "pageType": page_type_id,
-            "attributes": [{"id": file_attribute_id, "file": attr_value.file_url}],
+            "attributes": [{"id": file_attribute_id, "file": file_url}],
         }
     }
 
@@ -410,7 +424,7 @@ def test_create_page_with_file_attribute(
                 "slug": f"{attr_value.slug}-2",
                 "name": attr_value.name,
                 "file": {
-                    "url": f"http://{TEST_SERVER_DOMAIN}/media/{attr_value.file_url}",
+                    "url": file_url,
                     "contentType": None,
                 },
                 "reference": None,
@@ -427,7 +441,11 @@ def test_create_page_with_file_attribute(
 
 
 def test_create_page_with_file_attribute_new_attribute_value(
-    staff_api_client, permission_manage_pages, page_type, page_file_attribute
+    staff_api_client,
+    permission_manage_pages,
+    page_type,
+    page_file_attribute,
+    site_settings,
 ):
     # given
     page_slug = "test-slug"
@@ -442,6 +460,7 @@ def test_create_page_with_file_attribute_new_attribute_value(
     file_attribute_id = graphene.Node.to_global_id("Attribute", page_file_attribute.pk)
     page_type.page_attributes.add(page_file_attribute)
     new_value = "new_test_value.txt"
+    file_url = f"http://{site_settings.site.domain}{settings.MEDIA_URL}{new_value}"
     new_value_content_type = "text/plain"
 
     values_count = page_file_attribute.values.count()
@@ -457,7 +476,7 @@ def test_create_page_with_file_attribute_new_attribute_value(
             "attributes": [
                 {
                     "id": file_attribute_id,
-                    "file": new_value,
+                    "file": file_url,
                     "contentType": new_value_content_type,
                 }
             ],
@@ -489,7 +508,7 @@ def test_create_page_with_file_attribute_new_attribute_value(
                 "reference": None,
                 "name": new_value,
                 "file": {
-                    "url": f"http://{TEST_SERVER_DOMAIN}/media/" + new_value,
+                    "url": file_url,
                     "contentType": new_value_content_type,
                 },
                 "plainText": None,
@@ -1136,3 +1155,79 @@ def test_create_page_with_product_reference_attribute_required_no_references_giv
     assert errors[0]["code"] == PageErrorCode.REQUIRED.name
     assert errors[0]["field"] == "attributes"
     assert errors[0]["attributes"] == [file_attribute_id]
+
+
+def test_create_page_with_variant_reference_attribute(
+    staff_api_client,
+    permission_manage_pages,
+    page_type,
+    page_type_variant_reference_attribute,
+    variant,
+):
+    # given
+    page_slug = "test-slug"
+    page_content = dummy_editorjs("test content", True)
+    page_title = "test title"
+    page_is_published = True
+    page_type = PageType.objects.create(
+        name="Test page type 2", slug="test-page-type-2"
+    )
+    page_type_id = graphene.Node.to_global_id("PageType", page_type.pk)
+
+    ref_attribute_id = graphene.Node.to_global_id(
+        "Attribute", page_type_variant_reference_attribute.pk
+    )
+    page_type.page_attributes.add(page_type_variant_reference_attribute)
+    reference = graphene.Node.to_global_id("ProductVariant", variant.pk)
+
+    values_count = page_type_variant_reference_attribute.values.count()
+
+    # test creating root page
+    variables = {
+        "input": {
+            "title": page_title,
+            "content": page_content,
+            "isPublished": page_is_published,
+            "slug": page_slug,
+            "pageType": page_type_id,
+            "attributes": [{"id": ref_attribute_id, "references": [reference]}],
+        }
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        CREATE_PAGE_MUTATION, variables, permissions=[permission_manage_pages]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["pageCreate"]
+    errors = data["errors"]
+
+    assert not errors
+    assert data["page"]["title"] == page_title
+    assert data["page"]["content"] == page_content
+    assert data["page"]["slug"] == page_slug
+    assert data["page"]["isPublished"] == page_is_published
+    assert data["page"]["pageType"]["id"] == page_type_id
+    assert len(data["page"]["attributes"]) == 1
+    page_id = data["page"]["id"]
+    _, new_page_pk = graphene.Node.from_global_id(page_id)
+    expected_attr_data = {
+        "attribute": {"slug": page_type_variant_reference_attribute.slug},
+        "values": [
+            {
+                "slug": f"{new_page_pk}_{variant.pk}",
+                "file": None,
+                "name": f"{variant.product.name}: {variant.name}",
+                "reference": reference,
+                "plainText": None,
+                "dateTime": None,
+                "date": None,
+            }
+        ],
+    }
+    assert data["page"]["attributes"][0] == expected_attr_data
+
+    page_type_variant_reference_attribute.refresh_from_db()
+    assert page_type_variant_reference_attribute.values.count() == values_count + 1

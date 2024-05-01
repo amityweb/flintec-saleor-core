@@ -1,21 +1,24 @@
-import graphene
 from django.db.models import CharField, ExpressionWrapper, OuterRef, QuerySet, Subquery
 
 from ...payment.models import Payment
-from ..core.types import SortInputObjectType
+from ..core.doc_category import DOC_CATEGORY_CHECKOUT
+from ..core.types import BaseEnum, SortInputObjectType
 
 
-class CheckoutSortField(graphene.Enum):
+class CheckoutSortField(BaseEnum):
     CREATION_DATE = ["created_at", "pk"]
     CUSTOMER = ["billing_address__last_name", "billing_address__first_name", "pk"]
     PAYMENT = ["last_charge_status", "pk"]
+
+    class Meta:
+        doc_category = DOC_CATEGORY_CHECKOUT
 
     @property
     def description(self):
         if self.name in CheckoutSortField.__enum__._member_names_:
             sort_name = self.name.lower().replace("_", " ")
             return f"Sort checkouts by {sort_name}."
-        raise ValueError("Unsupported enum value: %s" % self.value)
+        raise ValueError(f"Unsupported enum value: {self.value}")
 
     @staticmethod
     def qs_with_payment(queryset: QuerySet, **_kwargs) -> QuerySet:
@@ -31,5 +34,6 @@ class CheckoutSortField(graphene.Enum):
 
 class CheckoutSortingInput(SortInputObjectType):
     class Meta:
+        doc_category = DOC_CATEGORY_CHECKOUT
         sort_enum = CheckoutSortField
         type_name = "checkouts"

@@ -5,10 +5,10 @@ from unittest.mock import Mock
 
 import graphene
 import pytest
-from django.contrib.auth.models import AnonymousUser
 from django.core.serializers.json import DjangoJSONEncoder
-from django.shortcuts import reverse
 from django.test.client import MULTIPART_CONTENT, Client
+from django.urls import reverse
+from django.utils.functional import SimpleLazyObject
 
 from ...account.models import User
 from ...core.jwt import create_access_token
@@ -18,33 +18,33 @@ from ..utils import handled_errors_logger, unhandled_errors_logger
 from .utils import assert_no_permission
 
 API_PATH = reverse("api")
-ACCESS_CONTROL_ALLOW_ORIGIN = "Access-Control-Allow-Origin"
-ACCESS_CONTROL_ALLOW_CREDENTIALS = "Access-Control-Allow-Credentials"
-ACCESS_CONTROL_ALLOW_HEADERS = "Access-Control-Allow-Headers"
-ACCESS_CONTROL_ALLOW_METHODS = "Access-Control-Allow-Methods"
 
 
-class ApiClient(Client):
+class BaseApiClient(Client):
     """GraphQL API client."""
 
     def __init__(self, *args, **kwargs):
-        user = kwargs.pop("user", AnonymousUser())
+        user = kwargs.pop("user", None)
         app = kwargs.pop("app", None)
+        api_path = kwargs.pop("api_path", None)
         self._user = None
         self.token = None
         self.user = user
         self.app_token = None
         self.app = app
-        if not user.is_anonymous:
+        if user:
             self.token = create_access_token(user)
         elif app:
             _, auth_token = app.tokens.create(name="Default")
             self.app_token = auth_token
+        self.api_path = API_PATH
+        if api_path:
+            self.api_path = api_path
         super().__init__(*args, **kwargs)
 
     def _base_environ(self, **request):
         environ = super()._base_environ(**request)
-        if not self.user.is_anonymous:
+        if self.user:
             environ["HTTP_AUTHORIZATION"] = f"JWT {self.token}"
         elif self.app_token:
             environ["HTTP_AUTHORIZATION"] = f"Bearer {self.app_token}"
@@ -57,7 +57,7 @@ class ApiClient(Client):
     @user.setter
     def user(self, user):
         self._user = user
-        if not user.is_anonymous:
+        if user:
             self.token = create_access_token(user)
 
     def post(self, data=None, **kwargs):
@@ -70,8 +70,10 @@ class ApiClient(Client):
         if data:
             data = json.dumps(data, cls=DjangoJSONEncoder)
         kwargs["content_type"] = "application/json"
-        return super().post(API_PATH, data, **kwargs)
+        return super().post(self.api_path, data, **kwargs)
 
+
+class ApiClient(BaseApiClient):
     def post_graphql(
         self,
         query,
@@ -95,13 +97,13 @@ class ApiClient(Client):
         if permissions:
             if check_no_permissions:
                 with mock.patch("saleor.graphql.utils.handled_errors_logger"):
-                    response = super().post(API_PATH, data, **kwargs)
+                    response = super(Client, self).post(self.api_path, data, **kwargs)
                 assert_no_permission(response)
             if self.app:
                 self.app.permissions.add(*permissions)
             else:
                 self.user.user_permissions.add(*permissions)
-        result = super().post(API_PATH, data, **kwargs)
+        result = super(Client, self).post(self.api_path, data, **kwargs)
         flush_post_commit_hooks()
         return result
 
@@ -114,10 +116,12 @@ class ApiClient(Client):
         kwargs["content_type"] = MULTIPART_CONTENT
 
         if permissions:
-            response = super().post(API_PATH, *args, **kwargs)
+            response = super(Client, self).post(self.api_path, *args, **kwargs)
             assert_no_permission(response)
             self.user.user_permissions.add(*permissions)
-        return super().post(API_PATH, *args, **kwargs)
+        result = super(Client, self).post(self.api_path, *args, **kwargs)
+        flush_post_commit_hooks()
+        return result
 
 
 @pytest.fixture
@@ -147,12 +151,21 @@ def user2_api_client(customer_user2):
 
 @pytest.fixture
 def api_client():
-    return ApiClient(user=AnonymousUser())
+    return ApiClient(user=None)
 
 
 @pytest.fixture
 def schema_context():
+<<<<<<< HEAD
     params = {"user": AnonymousUser(), "app": None, "plugins": get_plugins_manager()}
+=======
+    params = {
+        "user": SimpleLazyObject(lambda: None),
+        "app": SimpleLazyObject(lambda: None),
+        "plugins": get_plugins_manager(allow_replica=False),
+        "auth_token": "",
+    }
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
     return graphene.types.Context(**params)
 
 
@@ -161,6 +174,14 @@ def info(schema_context):
     return Mock(context=schema_context)
 
 
+<<<<<<< HEAD
+=======
+@pytest.fixture
+def anonymous_plugins():
+    return get_plugins_manager(allow_replica=False)
+
+
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 class LoggingHandler(logging.Handler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -184,8 +205,14 @@ def graphql_log_handler():
 
 
 @pytest.fixture
-def superuser():
-    superuser = User.objects.create_superuser("superuser@example.com", "pass")
+def superuser(db):
+    superuser = User.objects.create_user(
+        "superuser@example.com",
+        "pass",
+        is_staff=True,
+        is_active=True,
+        is_superuser=True,
+    )
     return superuser
 
 

@@ -208,17 +208,24 @@ def products_structures(category, channel_USD):
         currency=channel_USD.currency_code,
     )
     dummy_attr_value = attr_value(dummy_attr, DUMMIES[0])
-    associate_attribute_values_to_instance(dummy, dummy_attr, *dummy_attr_value)
+    associate_attribute_values_to_instance(
+        dummy,
+        {dummy_attr.pk: dummy_attr_value},
+    )
 
     for products in (apples, oranges):
         for product, attr_values in zip(products, COLORS):
             attr_values = attr_value(colors_attr, *attr_values)
-            associate_attribute_values_to_instance(product, colors_attr, *attr_values)
+            associate_attribute_values_to_instance(
+                product,
+                {colors_attr.pk: attr_values},
+            )
 
         for product, attr_values in zip(products, TRADEMARKS):
             attr_values = attr_value(trademark_attr, attr_values)
             associate_attribute_values_to_instance(
-                product, trademark_attr, *attr_values
+                product,
+                {trademark_attr.pk: attr_values},
             )
 
     return colors_attr, trademark_attr, dummy_attr
@@ -227,9 +234,7 @@ def products_structures(category, channel_USD):
 def test_sort_products_cannot_sort_both_by_field_and_by_attribute(
     api_client, channel_USD
 ):
-    """Ensure one cannot both sort by a supplied field and sort by a given attribute ID
-    at the same time.
-    """
+    """Test that sorting by field and by attribute are mutually exclusive."""
     query = QUERY_SORT_PRODUCTS_BY_ATTRIBUTE
     variables = {
         "field": "NAME",
@@ -363,7 +368,7 @@ EXPECTED_SORTED_DATA_SINGLE_VALUE_ASC = [
     {
         "node": {
             "attributes": [{"attribute": {"slug": "dummy"}, "values": []}],
-            "name": "Another Dummy but first in ASC and has no attribute " "value",
+            "name": "Another Dummy but first in ASC and has no attribute value",
         }
     },
     {
@@ -482,7 +487,7 @@ EXPECTED_SORTED_DATA_MULTIPLE_VALUES_ASC = [
     {
         "node": {
             "attributes": [{"attribute": {"slug": "dummy"}, "values": []}],
-            "name": "Another Dummy but first in ASC and has no attribute " "value",
+            "name": "Another Dummy but first in ASC and has no attribute value",
         }
     },
     {
@@ -549,9 +554,10 @@ def test_sort_product_by_attribute_multiple_values(
 
 
 def test_sort_product_not_having_attribute_data(api_client, category, count_queries):
-    """Test the case where a product has a given attribute assigned to their
-    product type but no attribute data assigned, i.e. the product's PT was changed
-    after the product creation.
+    """Test sorting when an attribute exists but does not have a value.
+
+    For example, when the product's product type was updated after the product
+    was created.
     """
     expected_results = ["Z", "Y", "A"]
     product_create_kwargs = {"category": category}
@@ -577,7 +583,10 @@ def test_sort_product_not_having_attribute_data(api_client, category, count_quer
     product_having_attr_value = product_models.Product.objects.create(
         name="Z", slug="z", product_type=product_type, **product_create_kwargs
     )
-    associate_attribute_values_to_instance(product_having_attr_value, attribute, value)
+    associate_attribute_values_to_instance(
+        product_having_attr_value,
+        {attribute.pk: [value]},
+    )
 
     # Create a product having the same product type but no attribute data
     product_models.Product.objects.create(

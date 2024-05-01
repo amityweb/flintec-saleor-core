@@ -1,4 +1,3 @@
-from typing import List
 from uuid import UUID
 
 import django_filters
@@ -10,13 +9,19 @@ from ...account import models as account_models
 from ...giftcard import models
 from ...order import models as order_models
 from ...product import models as product_models
+from ..core.doc_category import DOC_CATEGORY_GIFT_CARDS
 from ..core.filters import (
     GlobalIDMultipleChoiceFilter,
     ListObjectTypeFilter,
     MetadataFilterBase,
     ObjectTypeFilter,
 )
-from ..core.types import FilterInputObjectType, NonNullList, PriceRangeInput
+from ..core.types import (
+    BaseInputObjectType,
+    FilterInputObjectType,
+    NonNullList,
+    PriceRangeInput,
+)
 from ..utils import resolve_global_ids_to_primary_keys
 from .enums import GiftCardEventsEnum
 
@@ -29,7 +34,7 @@ def filter_products(qs, _, value):
 
 
 def filter_gift_cards_by_products(qs, product_ids):
-    products = product_models.Product.objects.filter(pk__in=product_ids)
+    products = product_models.Product.objects.using(qs.db).filter(pk__in=product_ids)
     return qs.filter(Exists(products.filter(pk=OuterRef("product_id"))))
 
 
@@ -41,14 +46,14 @@ def filter_used_by(qs, _, value):
 
 
 def filter_gift_cards_by_used_by_user(qs, user_pks):
-    users = account_models.User.objects.filter(pk__in=user_pks)
+    users = account_models.User.objects.using(qs.db).filter(pk__in=user_pks)
     return qs.filter(Exists(users.filter(pk=OuterRef("used_by_id"))))
 
 
 def filter_tags_list(qs, _, value):
     if not value:
         return qs
-    tags = models.GiftCardTag.objects.filter(name__in=value)
+    tags = models.GiftCardTag.objects.using(qs.db).filter(name__in=value)
     return qs.filter(Exists(tags.filter(pk=OuterRef("tags__id"))))
 
 
@@ -79,6 +84,12 @@ def filter_code(qs, _, value):
     return qs.filter(code=value)
 
 
+def filter_created_by_email(qs, _, value):
+    if not value:
+        return qs
+    return qs.filter(created_by_email=value)
+
+
 class GiftCardFilter(MetadataFilterBase):
     tags = ListObjectTypeFilter(input_class=graphene.String, method=filter_tags_list)
     products = GlobalIDMultipleChoiceFilter(method=filter_products)
@@ -93,6 +104,7 @@ class GiftCardFilter(MetadataFilterBase):
     )
     is_active = django_filters.BooleanFilter()
     code = django_filters.CharFilter(method=filter_code)
+    created_by_email = django_filters.CharFilter(method=filter_created_by_email)
 
     class Meta:
         model = models.GiftCard
@@ -117,10 +129,11 @@ def check_currency_in_filter_data(filter_data: dict):
 
 class GiftCardFilterInput(FilterInputObjectType):
     class Meta:
+        doc_category = DOC_CATEGORY_GIFT_CARDS
         filterset_class = GiftCardFilter
 
 
-def filter_events_by_type(events: List[models.GiftCardEvent], type_value: str):
+def filter_events_by_type(events: list[models.GiftCardEvent], type_value: str):
     filtered_events = []
     for event in events:
         if event.type == type_value:
@@ -128,8 +141,14 @@ def filter_events_by_type(events: List[models.GiftCardEvent], type_value: str):
     return filtered_events
 
 
-def filter_events_by_orders(events: List[models.GiftCardEvent], order_ids: List[str]):
-    order_pks = _get_order_pks(order_ids)
+def filter_events_by_orders(
+    events: list[models.GiftCardEvent],
+    order_ids: list[str],
+    database_connection_name: str,
+):
+    order_pks = _get_order_pks(
+        order_ids, database_connection_name=database_connection_name
+    )
 
     filtered_events = []
     for event in events:
@@ -138,7 +157,7 @@ def filter_events_by_orders(events: List[models.GiftCardEvent], order_ids: List[
     return filtered_events
 
 
-def _get_order_pks(order_ids: List[str]):
+def _get_order_pks(order_ids: list[str], database_connection_name: str):
     _, order_pks = resolve_global_ids_to_primary_keys(order_ids, "Order")
 
     pks = []
@@ -149,14 +168,19 @@ def _get_order_pks(order_ids: List[str]):
         except ValueError:
             old_pks.append(pk)
 
-    return order_models.Order.objects.filter(
-        Q(id__in=pks) | (Q(use_old_id=True) & Q(number__in=old_pks))
-    ).values_list("id", flat=True)
+    return (
+        order_models.Order.objects.using(database_connection_name)
+        .filter(Q(id__in=pks) | (Q(use_old_id=True) & Q(number__in=old_pks)))
+        .values_list("id", flat=True)
+    )
 
 
-class GiftCardEventFilterInput(graphene.InputObjectType):
+class GiftCardEventFilterInput(BaseInputObjectType):
     type = graphene.Argument(GiftCardEventsEnum)
     orders = NonNullList(graphene.ID)
+
+    class Meta:
+        doc_category = DOC_CATEGORY_GIFT_CARDS
 
 
 def filter_gift_card_tag_search(qs, _, value):
@@ -171,4 +195,5 @@ class GiftCardTagFilter(django_filters.FilterSet):
 
 class GiftCardTagFilterInput(FilterInputObjectType):
     class Meta:
+        doc_category = DOC_CATEGORY_GIFT_CARDS
         filterset_class = GiftCardTagFilter

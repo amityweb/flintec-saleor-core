@@ -1,9 +1,8 @@
-from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
 from django.db.models import Q
 from django.db.models.expressions import Exists, OuterRef
-from prices import TaxedMoney
 
 from ..app.models import App
 from .event_types import WebhookEventAsyncType, WebhookEventSyncType
@@ -14,7 +13,10 @@ if TYPE_CHECKING:
 
 
 def get_webhooks_for_event(
-    event_type: str, webhooks: Optional["QuerySet[Webhook]"] = None
+    event_type: str,
+    webhooks: Optional["QuerySet[Webhook]"] = None,
+    apps_ids: Optional["list[int]"] = None,
+    apps_identifier: Optional[list[str]] = None,
 ) -> "QuerySet[Webhook]":
     """Get active webhooks from the database for an event."""
     permissions = {}
@@ -26,24 +28,39 @@ def get_webhooks_for_event(
         permissions["permissions__content_type__app_label"] = app_label
         permissions["permissions__codename"] = codename
 
+    # In this function we use the replica database for all queryset reads, as there is
+    # no risk that any mutation would change the result of these querysets.
+
     if webhooks is None:
+        # For this QS replica usage is applied later, as this QS could be also passed
+        # as parameter.
         webhooks = Webhook.objects.all()
-    apps = App.objects.filter(is_active=True, **permissions)
+
+    app_kwargs: dict = {"is_active": True, **permissions}
+    if event_type != WebhookEventAsyncType.APP_DELETED:
+        app_kwargs["removed_at__isnull"] = True
+    if apps_ids:
+        app_kwargs["id__in"] = apps_ids
+    if apps_identifier:
+        app_kwargs["identifier__in"] = apps_identifier
+
+    apps = App.objects.using(settings.DATABASE_CONNECTION_REPLICA_NAME).filter(
+        **app_kwargs
+    )
     event_types = [event_type]
     if event_type in WebhookEventAsyncType.ALL:
         event_types.append(WebhookEventAsyncType.ANY)
-    webhook_events = WebhookEvent.objects.filter(event_type__in=event_types)
+
+    webhook_events = WebhookEvent.objects.using(
+        settings.DATABASE_CONNECTION_REPLICA_NAME
+    ).filter(event_type__in=event_types)
     return (
-        webhooks.filter(
-            Q(is_active=True, app__in=apps)
+        webhooks.using(settings.DATABASE_CONNECTION_REPLICA_NAME)
+        .filter(
+            Q(is_active=True)
+            & Q(Exists(apps.filter(id=OuterRef("app_id"))))
             & Q(Exists(webhook_events.filter(webhook_id=OuterRef("id"))))
         )
         .select_related("app")
         .prefetch_related("app__permissions__content_type")
     )
-
-
-def get_base_price(price: TaxedMoney, include_taxes_in_prices: bool) -> Decimal:
-    if include_taxes_in_prices:
-        return price.gross.amount
-    return price.net.amount

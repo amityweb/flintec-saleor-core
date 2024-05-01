@@ -11,7 +11,7 @@ from .....checkout.models import Checkout
 from .....checkout.utils import (
     add_variant_to_checkout,
     add_voucher_to_checkout,
-    invalidate_checkout_prices,
+    invalidate_checkout,
 )
 from .....plugins.base_plugin import ExcludedShippingMethod
 from .....plugins.manager import get_plugins_manager
@@ -45,7 +45,43 @@ MUTATION_CHECKOUT_SHIPPING_ADDRESS_UPDATE = """
                 code
             }
         }
-    }"""
+    }
+"""
+
+
+MUTATION_CHECKOUT_SHIPPING_ADDRESS_WITH_METADATA_UPDATE = """
+    mutation checkoutShippingAddressUpdate(
+            $id: ID,
+            $shippingAddress: AddressInput!,
+            $validationRules: CheckoutAddressValidationRules
+        ) {
+        checkoutShippingAddressUpdate(
+                id: $id,
+                shippingAddress: $shippingAddress,
+                validationRules: $validationRules
+        ) {
+            checkout {
+                token
+                id
+                shippingMethods{
+                    id
+                    name
+                }
+                shippingAddress {
+                    metadata {
+                        key
+                        value
+                    }
+                }
+            }
+            errors {
+                field
+                message
+                code
+            }
+        }
+    }
+"""
 
 
 @mock.patch(
@@ -55,11 +91,11 @@ MUTATION_CHECKOUT_SHIPPING_ADDRESS_UPDATE = """
 )
 @mock.patch(
     "saleor.graphql.checkout.mutations.checkout_shipping_address_update."
-    "invalidate_checkout_prices",
-    wraps=invalidate_checkout_prices,
+    "invalidate_checkout",
+    wraps=invalidate_checkout,
 )
-def test_checkout_shipping_address_update(
-    mocked_invalidate_checkout_prices,
+def test_checkout_shipping_address_with_metadata_update(
+    mocked_invalidate_checkout,
     mocked_update_shipping_method,
     user_api_client,
     checkout_with_item,
@@ -76,12 +112,14 @@ def test_checkout_shipping_address_update(
     }
 
     response = user_api_client.post_graphql(
-        MUTATION_CHECKOUT_SHIPPING_ADDRESS_UPDATE, variables
+        MUTATION_CHECKOUT_SHIPPING_ADDRESS_WITH_METADATA_UPDATE, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["checkoutShippingAddressUpdate"]
     assert not data["errors"]
     checkout.refresh_from_db()
+    assert checkout.shipping_address.metadata == {"public": "public_value"}
+
     assert checkout.shipping_address is not None
     assert checkout.shipping_address.first_name == shipping_address["firstName"]
     assert checkout.shipping_address.last_name == shipping_address["lastName"]
@@ -94,12 +132,12 @@ def test_checkout_shipping_address_update(
     assert checkout.shipping_address.postal_code == shipping_address["postalCode"]
     assert checkout.shipping_address.country == shipping_address["country"]
     assert checkout.shipping_address.city == shipping_address["city"].upper()
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     mocked_update_shipping_method.assert_called_once_with(checkout_info, lines)
     assert checkout.last_change != previous_last_change
-    assert mocked_invalidate_checkout_prices.call_count == 1
+    assert mocked_invalidate_checkout.call_count == 1
 
 
 @mock.patch(
@@ -118,7 +156,9 @@ def test_checkout_shipping_address_update_changes_checkout_country(
     variant = variant_with_many_stocks_different_shipping_zones
     checkout = Checkout.objects.create(channel=channel_USD, currency="USD")
     checkout.set_country("PL", commit=True)
-    checkout_info = fetch_checkout_info(checkout, [], [], get_plugins_manager())
+    checkout_info = fetch_checkout_info(
+        checkout, [], get_plugins_manager(allow_replica=False)
+    )
     add_variant_to_checkout(checkout_info, variant, 1)
     assert checkout.shipping_address is None
     previous_last_change = checkout.last_change
@@ -151,9 +191,9 @@ def test_checkout_shipping_address_update_changes_checkout_country(
     assert checkout.shipping_address.postal_code == shipping_address["postalCode"]
     assert checkout.shipping_address.country == shipping_address["country"]
     assert checkout.shipping_address.city == shipping_address["city"].upper()
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     mocked_update_shipping_method.assert_called_once_with(checkout_info, lines)
     assert checkout.country == shipping_address["country"]
     assert checkout.last_change != previous_last_change
@@ -175,7 +215,9 @@ def test_checkout_shipping_address_update_insufficient_stocks(
     variant = variant_with_many_stocks_different_shipping_zones
     checkout = Checkout.objects.create(channel=channel_USD, currency="USD")
     checkout.set_country("PL", commit=True)
-    checkout_info = fetch_checkout_info(checkout, [], [], get_plugins_manager())
+    checkout_info = fetch_checkout_info(
+        checkout, [], get_plugins_manager(allow_replica=False)
+    )
     add_variant_to_checkout(checkout_info, variant, 1)
     Stock.objects.filter(
         warehouse__shipping_zones__countries__contains="US", product_variant=variant
@@ -210,6 +252,49 @@ def test_checkout_shipping_address_update_insufficient_stocks(
     wraps=update_checkout_shipping_method_if_invalid,
 )
 @override_settings(DEFAULT_COUNTRY="DE")
+def test_checkout_shipping_address_update_doesnt_raise_error(
+    mocked_update_shipping_method,
+    channel_USD,
+    user_api_client,
+    product_list,
+    graphql_address_data,
+):
+    variant_a = product_list[0].variants.first()
+    variant_b = product_list[1].variants.first()
+    Stock.objects.filter(product_variant=variant_a).update(quantity=4)
+    Stock.objects.filter(product_variant=variant_b).update(quantity=1)
+    checkout = Checkout.objects.create(channel=channel_USD, currency="USD")
+    checkout.set_country("PL", commit=True)
+    checkout_info = fetch_checkout_info(
+        checkout, [], get_plugins_manager(allow_replica=False)
+    )
+    add_variant_to_checkout(checkout_info, variant_b, 1)
+    add_variant_to_checkout(checkout_info, variant_a, 4)
+    assert checkout.shipping_address is None
+
+    shipping_address = graphql_address_data
+    shipping_address["country"] = "US"
+    shipping_address["countryArea"] = "New York"
+    shipping_address["postalCode"] = "10001"
+    variables = {
+        "id": to_global_id_or_none(checkout),
+        "shippingAddress": shipping_address,
+    }
+
+    response = user_api_client.post_graphql(
+        MUTATION_CHECKOUT_SHIPPING_ADDRESS_UPDATE, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["checkoutShippingAddressUpdate"]
+    assert not data["errors"]
+
+
+@mock.patch(
+    "saleor.graphql.checkout.mutations.checkout_shipping_address_update."
+    "update_checkout_shipping_method_if_invalid",
+    wraps=update_checkout_shipping_method_if_invalid,
+)
+@override_settings(DEFAULT_COUNTRY="DE")
 def test_checkout_shipping_address_update_with_reserved_stocks(
     mocked_update_shipping_method,
     site_settings_with_reservations,
@@ -221,7 +306,9 @@ def test_checkout_shipping_address_update_with_reserved_stocks(
     variant = variant_with_many_stocks_different_shipping_zones
     checkout = Checkout.objects.create(channel=channel_USD, currency="USD")
     checkout.set_country("PL", commit=True)
-    checkout_info = fetch_checkout_info(checkout, [], [], get_plugins_manager())
+    checkout_info = fetch_checkout_info(
+        checkout, [], get_plugins_manager(allow_replica=False)
+    )
     add_variant_to_checkout(checkout_info, variant, 2)
     assert checkout.shipping_address is None
 
@@ -272,7 +359,9 @@ def test_checkout_shipping_address_update_against_reserved_stocks(
     variant = variant_with_many_stocks_different_shipping_zones
     checkout = Checkout.objects.create(channel=channel_USD, currency="USD")
     checkout.set_country("PL", commit=True)
-    checkout_info = fetch_checkout_info(checkout, [], [], get_plugins_manager())
+    checkout_info = fetch_checkout_info(
+        checkout, [], get_plugins_manager(allow_replica=False)
+    )
     add_variant_to_checkout(checkout_info, variant, 2)
     Stock.objects.filter(
         warehouse__shipping_zones__countries__contains="US", product_variant=variant
@@ -848,13 +937,14 @@ def test_checkout_shipping_address_update_with_not_applicable_voucher(
     assert checkout_with_item.shipping_address.country == address_other_country.country
 
     voucher = voucher_shipping_type
+    code = voucher.codes.first()
     assert voucher.countries[0].code == address_other_country.country
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout_with_item)
-    checkout_info = fetch_checkout_info(checkout_with_item, lines, [], manager)
-    add_voucher_to_checkout(manager, checkout_info, lines, voucher)
-    assert checkout_with_item.voucher_code == voucher.code
+    checkout_info = fetch_checkout_info(checkout_with_item, lines, manager)
+    add_voucher_to_checkout(manager, checkout_info, lines, voucher, code)
+    assert checkout_with_item.voucher_code == code.code
 
     new_address = graphql_address_data
     variables = {
@@ -873,3 +963,55 @@ def test_checkout_shipping_address_update_with_not_applicable_voucher(
 
     assert checkout_with_item.shipping_address.country == new_address["country"]
     assert checkout_with_item.voucher_code is None
+
+
+def test_with_active_problems_flow(
+    api_client,
+    checkout_with_problems,
+    graphql_address_data,
+):
+    # given
+    channel = checkout_with_problems.channel
+    channel.use_legacy_error_flow_for_checkout = False
+    channel.save(update_fields=["use_legacy_error_flow_for_checkout"])
+
+    new_address = graphql_address_data
+    variables = {
+        "id": to_global_id_or_none(checkout_with_problems),
+        "shippingAddress": new_address,
+    }
+
+    # when
+    response = api_client.post_graphql(
+        MUTATION_CHECKOUT_SHIPPING_ADDRESS_UPDATE, variables
+    )
+    content = get_graphql_content(response)
+
+    # then
+    assert not content["data"]["checkoutShippingAddressUpdate"]["errors"]
+
+
+def test_checkout_shipping_address_update_with_collection_point_already_set(
+    user_api_client,
+    checkout_with_item,
+    graphql_address_data,
+    warehouse_for_cc,
+):
+    checkout = checkout_with_item
+    checkout.collection_point_id = warehouse_for_cc.id
+    checkout.save(update_fields=["collection_point_id"])
+
+    shipping_address = graphql_address_data
+    variables = {
+        "id": to_global_id_or_none(checkout),
+        "shippingAddress": shipping_address,
+    }
+
+    response = user_api_client.post_graphql(
+        MUTATION_CHECKOUT_SHIPPING_ADDRESS_UPDATE, variables
+    )
+    content = get_graphql_content(response)
+    data = content["data"]["checkoutShippingAddressUpdate"]
+    errors = data["errors"]
+    assert errors[0]["code"] == CheckoutErrorCode.SHIPPING_CHANGE_FORBIDDEN.name
+    assert errors[0]["field"] == "shippingAddress"

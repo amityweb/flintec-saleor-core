@@ -14,6 +14,7 @@ from ..validators import validate_possible_number
 
 @pytest.mark.parametrize("country", ["CN", "PL", "US", "IE"])
 def test_address_form_for_country(country):
+    # given
     data = {
         "first_name": "John",
         "last_name": "Doe",
@@ -21,10 +22,13 @@ def test_address_form_for_country(country):
         "phone": "123456789",
     }
 
-    form = forms.get_address_form(data, country_code=country)[0]
+    # when
+    form = forms.get_address_form(data, country_code=country)
     errors = form.errors
     rules = i18naddress.get_validation_rules({"country_code": country})
     required = rules.required_fields
+
+    # then
     if "street_address" in required:
         assert "street_address_1" in errors
     else:
@@ -48,28 +52,61 @@ def test_address_form_for_country(country):
 
 
 def test_address_form_postal_code_validation():
+    # given
     data = {
         "first_name": "John",
         "last_name": "Doe",
         "country": "PL",
         "postal_code": "XXX",
     }
-    form = forms.get_address_form(data, country_code="PL")[0]
+
+    # when
+    form = forms.get_address_form(data, country_code="PL")
     errors = form.errors
+    # then
     assert "postal_code" in errors
 
 
+def test_address_form_long_street_address_validation():
+    # given
+    data = {
+        "city": "test",
+        "city_area": "test",
+        "company_name": "test",
+        "first_name": "Amelia",
+        "last_name": "Doe",
+        "country": "US",
+        "country_area": "IN",
+        "phone": "",
+        "postal_code": "46802",
+        "street_address_1": (
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut "
+            "labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris "
+            "nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit "
+            "esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt "
+            "in culpa qui officia deserunt mollit anim id est laborum"
+        ),
+    }
+
+    # when
+    form = forms.get_address_form(data, country_code="US")
+    errors = form.errors
+
+    # then
+    assert "street_address_1" in errors
+
+
 @pytest.mark.parametrize(
-    "country, phone, is_valid",
-    (
+    ("country", "phone", "is_valid"),
+    [
         ("US", "123-456-7890", False),
         ("US", "(541) 754-3010", True),
         ("FR", "0600000000", True),
-    ),
+    ],
 )
 def test_address_form_phone_number_validation(country, phone, is_valid):
     data = {"country": country, "phone": phone}
-    form = forms.get_address_form(data, country_code="PL")[0]
+    form = forms.get_address_form(data, country_code="PL")
     errors = form.errors
     if not is_valid:
         assert "phone" in errors
@@ -78,48 +115,43 @@ def test_address_form_phone_number_validation(country, phone, is_valid):
 
 
 @pytest.mark.parametrize(
-    "form_data, form_valid, expected_preview, expected_country",
+    ("form_data", "form_valid", "expected_country"),
     [
-        ({"preview": True}, False, True, "PL"),
+        ({}, False, "PL"),
         (
             {
-                "preview": False,
                 "street_address_1": "Foo bar",
                 "postal_code": "00-123",
                 "city": "Warsaw",
             },
             True,
-            False,
             "PL",
         ),
-        ({"preview": True, "country": "US"}, False, True, "US"),
+        ({"country": "US"}, False, "US"),
         (
             {
-                "preview": False,
                 "street_address_1": "Foo bar",
                 "postal_code": "0213",
                 "city": "Warsaw",
             },
             False,
-            False,
             "PL",
         ),
     ],
 )
-def test_get_address_form(form_data, form_valid, expected_preview, expected_country):
+def test_get_address_form(form_data, form_valid, expected_country):
     data = {"first_name": "John", "last_name": "Doe", "country": "PL"}
     data.update(form_data)
     query_dict = urlencode(data)
-    form, preview = forms.get_address_form(
+    form = forms.get_address_form(
         data=QueryDict(query_dict), country_code=data["country"]
     )
-    assert preview is expected_preview
     assert form.is_valid() is form_valid
     assert form.i18n_country_code == expected_country
 
 
 def test_get_address_form_no_country_code():
-    form, _ = forms.get_address_form(data={}, country_code=None)
+    form = forms.get_address_form(data={}, country_code=None)
     assert isinstance(form, i18n.AddressForm)
 
 
@@ -135,8 +167,8 @@ def test_country_aware_form_has_only_supported_countries():
 
 
 @pytest.mark.parametrize(
-    "input_data, is_valid",
-    (
+    ("input_data", "is_valid"),
+    [
         ({"phone": "123"}, False),
         ({"phone": "+48123456789"}, True),
         ({"phone": "+12025550169"}, True),
@@ -153,7 +185,7 @@ def test_country_aware_form_has_only_supported_countries():
         ({"country": "US", "phone": "1-541-754-3010"}, True),
         ({"country": "FR", "phone": "1234567890"}, False),
         ({"country": "FR", "phone": "0600000000"}, True),
-    ),
+    ],
 )
 def test_validate_possible_number(input_data, is_valid):
     if not is_valid:
@@ -177,6 +209,8 @@ def test_address_as_data(address):
         "country": "PL",
         "country_area": "",
         "phone": "+48713988102",
+        "metadata": {},
+        "private_metadata": {},
     }
 
 
@@ -184,11 +218,6 @@ def test_copy_address(address):
     copied_address = address.get_copy()
     assert copied_address.pk != address.pk
     assert copied_address == address
-
-
-def test_compare_addresses(address):
-    copied_address = address.get_copy()
-    assert address == copied_address
 
 
 def test_compare_addresses_with_country_object(address):
@@ -206,7 +235,7 @@ def test_compare_addresses_different_country(address):
 
 
 @pytest.mark.parametrize(
-    "email, first_name, last_name, full_name",
+    ("email", "first_name", "last_name", "full_name"),
     [
         ("John@example.com", "John", "Doe", "John Doe"),
         ("John@example.com", "John", "", "John"),
@@ -222,7 +251,7 @@ def test_get_full_name_user_with_names(
 
 
 @pytest.mark.parametrize(
-    "email, first_name, last_name, full_name",
+    ("email", "first_name", "last_name", "full_name"),
     [
         ("John@example.com", "John", "Doe", "John Doe"),
         ("John@example.com", "John", "", "John"),
@@ -240,7 +269,7 @@ def test_get_full_name_user_with_address(
 
 
 @pytest.mark.parametrize(
-    "email, first_name, last_name, full_name",
+    ("email", "first_name", "last_name", "full_name"),
     [
         ("John@example.com", "John", "Doe", "John Doe"),
         ("John@example.com", "John", "", "John"),

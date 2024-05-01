@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from ...payment.models import Transaction, TransactionEvent
+from ...payment.models import Transaction, TransactionEvent, TransactionItem
 from ..core.dataloaders import DataLoader
 
 
@@ -11,12 +11,22 @@ class TransactionEventByTransactionIdLoader(DataLoader):
         events = (
             TransactionEvent.objects.using(self.database_connection_name)
             .filter(transaction_id__in=keys)
-            .order_by("pk")
+            .order_by("-created_at")
         )
         event_map = defaultdict(list)
         for event in events:
             event_map[event.transaction_id].append(event)
         return [event_map.get(transaction_id, []) for transaction_id in keys]
+
+
+class TransactionItemByIDLoader(DataLoader):
+    context_key = "transaction_items_by_id"
+
+    def batch_load(self, keys):
+        transactions = TransactionItem.objects.using(
+            self.database_connection_name
+        ).in_bulk(keys)
+        return [transactions.get(transaction_id) for transaction_id in keys]
 
 
 class TransactionByPaymentIdLoader(DataLoader):

@@ -1,8 +1,15 @@
 import django_filters
+import graphene
 from django.db.models import Q
 
 from ...page import models
-from ..core.filters import GlobalIDMultipleChoiceFilter, MetadataFilterBase
+from ..core.doc_category import DOC_CATEGORY_PAGES
+from ..core.filters import (
+    GlobalIDMultipleChoiceFilter,
+    ListObjectTypeFilter,
+    MetadataFilterBase,
+    filter_slug_list,
+)
 from ..core.types import FilterInputObjectType
 from ..utils import resolve_global_ids_to_primary_keys
 from ..utils.filters import filter_by_id
@@ -36,6 +43,7 @@ class PageFilter(MetadataFilterBase):
     search = django_filters.CharFilter(method=filter_page_search)
     page_types = GlobalIDMultipleChoiceFilter(method=filter_page_page_types)
     ids = GlobalIDMultipleChoiceFilter(method=filter_by_id(Page))
+    slugs = ListObjectTypeFilter(input_class=graphene.String, method=filter_slug_list)
 
     class Meta:
         model = models.Page
@@ -44,13 +52,16 @@ class PageFilter(MetadataFilterBase):
 
 class PageFilterInput(FilterInputObjectType):
     class Meta:
+        doc_category = DOC_CATEGORY_PAGES
         filterset_class = PageFilter
 
 
 class PageTypeFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method=filter_page_type_search)
+    slugs = ListObjectTypeFilter(input_class=graphene.String, method=filter_slug_list)
 
 
 class PageTypeFilterInput(FilterInputObjectType):
     class Meta:
+        doc_category = DOC_CATEGORY_PAGES
         filterset_class = PageTypeFilter

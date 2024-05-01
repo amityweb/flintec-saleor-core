@@ -1,8 +1,9 @@
 import logging
 from decimal import Decimal
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import before_after
 import graphene
 import pytest
 from django.core.exceptions import ValidationError
@@ -12,7 +13,9 @@ from ......checkout import calculations
 from ......checkout.fetch import fetch_checkout_info, fetch_checkout_lines
 from ......order import OrderEvents, OrderStatus
 from ......plugins.manager import get_plugins_manager
+from ......warehouse.models import Stock
 from ..... import ChargeStatus, TransactionKind
+from .....models import Transaction
 from .....utils import price_to_minor_unit, update_payment_charge_status
 from ...webhooks import (
     confirm_payment_and_set_back_to_confirm,
@@ -147,6 +150,52 @@ def test_handle_authorization_for_pending_order(
     assert external_events.count() == 1
 
 
+def test_handle_authorization_sets_psp_reference(
+    notification,
+    adyen_plugin,
+    payment_adyen_for_checkout,
+    address,
+    shipping_method,
+):
+    # given
+    checkout = payment_adyen_for_checkout.checkout
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.save()
+
+    payment = payment_adyen_for_checkout
+    manager = get_plugins_manager(allow_replica=False)
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
+    total = calculations.calculate_checkout_total_with_gift_cards(
+        manager, checkout_info, lines, address
+    )
+    payment.is_active = True
+    payment.order = None
+    payment.total = total.gross.amount
+    payment.currency = total.gross.currency
+    payment.to_confirm = True
+    payment.save()
+
+    expected_psp_reference = "psp-123"
+
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    notification = notification(
+        psp_reference=expected_psp_reference,
+        merchant_reference=payment_id,
+        value=price_to_minor_unit(payment.total, payment.currency),
+    )
+    config = adyen_plugin().config
+
+    # when
+    handle_authorization(notification, config)
+
+    # then
+    payment.refresh_from_db()
+    assert payment.psp_reference == expected_psp_reference
+
+
 def test_handle_authorization_for_checkout(
     notification,
     adyen_plugin,
@@ -162,9 +211,9 @@ def test_handle_authorization_for_checkout(
     checkout_token = str(checkout.token)
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -213,9 +262,9 @@ def test_handle_authorization_for_checkout_partial_payment(
     checkout.save()
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -240,6 +289,228 @@ def test_handle_authorization_for_checkout_partial_payment(
     assert not payment.order
 
 
+@mock.patch("saleor.payment.gateways.adyen.plugin.call_refund")
+def test_handle_authorization_for_checkout_out_of_stock_after_payment(
+    mock_refund,
+    notification,
+    adyen_plugin,
+    payment_adyen_for_checkout,
+    address,
+    shipping_method,
+):
+    refund_response = {"pspReference": "refund-psp"}
+    mock_refund_response = MagicMock()
+    mock_refund.return_value = mock_refund_response
+    mock_refund_response.message = refund_response
+
+    checkout = payment_adyen_for_checkout.checkout
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.save()
+
+    payment = payment_adyen_for_checkout
+    manager = get_plugins_manager(allow_replica=False)
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
+    total = calculations.calculate_checkout_total_with_gift_cards(
+        manager, checkout_info, lines, address
+    )
+    payment.is_active = True
+    payment.order = None
+    payment.total = total.gross.amount
+    payment.currency = total.gross.currency
+    payment.to_confirm = True
+    payment.save()
+
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    notification = notification(
+        psp_reference="reference",
+        merchant_reference=payment_id,
+        value=price_to_minor_unit(payment.total, payment.currency),
+    )
+    config = adyen_plugin(adyen_auto_capture=True).config
+
+    # when
+    def call_after_finalizing_payment(*args, **kwargs):
+        Stock.objects.all().update(quantity=0)
+
+    with before_after.before(
+        "saleor.checkout.complete_checkout._create_order",
+        call_after_finalizing_payment,
+    ):
+        handle_authorization(notification, config)
+
+    # then
+    payment.refresh_from_db()
+    assert not payment.order
+    assert payment.checkout
+    assert (
+        payment.transactions.filter(
+            kind__in=[
+                TransactionKind.ACTION_TO_CONFIRM,
+                TransactionKind.CAPTURE,
+                TransactionKind.REFUND_ONGOING,
+            ]
+        ).count()
+        == 3
+    )
+
+
+def test_handle_authorization_for_checkout_that_cannot_be_finalized(
+    notification,
+    adyen_plugin,
+    payment_adyen_for_checkout,
+    address,
+    shipping_method,
+):
+    # given
+    checkout = payment_adyen_for_checkout.checkout
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.save()
+
+    payment = payment_adyen_for_checkout
+    manager = get_plugins_manager(allow_replica=False)
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
+    total = calculations.calculate_checkout_total_with_gift_cards(
+        manager, checkout_info, lines, address
+    )
+    payment.is_active = True
+    payment.order = None
+    payment.total = total.gross.amount
+    payment.currency = total.gross.currency
+    payment.to_confirm = True
+    payment.save()
+
+    payment.transactions.create(
+        token="reference",
+        kind=TransactionKind.CAPTURE,
+        is_success=True,
+        action_required=False,
+        currency=payment.currency,
+        amount=payment.total,
+        gateway_response={},
+    )
+    payment.transactions.create(
+        token="refund-reference",
+        is_success=True,
+        kind=TransactionKind.REFUND_ONGOING,
+        action_required=False,
+        currency=payment.currency,
+        amount=payment.total,
+        gateway_response={},
+    )
+
+    checkout.lines.first().delete()
+
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    notification = notification(
+        psp_reference="reference",
+        merchant_reference=payment_id,
+        value=price_to_minor_unit(payment.total, payment.currency),
+    )
+    config = adyen_plugin(adyen_auto_capture=True).config
+
+    # when
+    handle_authorization(notification, config)
+
+    # then
+    payment.refresh_from_db()
+    assert not payment.order
+    assert payment.checkout
+    assert payment.transactions.count() == 2
+
+
+@patch("saleor.payment.gateway.refund")
+def test_handle_authorization_calls_refund_for_inactive_payment(
+    mock_refund,
+    notification,
+    adyen_plugin,
+    payment_adyen_for_checkout,
+    address,
+    shipping_method,
+):
+    # given
+    checkout = payment_adyen_for_checkout.checkout
+    checkout.shipping_address = address
+    checkout.shipping_method = shipping_method
+    checkout.billing_address = address
+    checkout.save()
+
+    payment = payment_adyen_for_checkout
+    manager = get_plugins_manager(allow_replica=False)
+    lines, _ = fetch_checkout_lines(checkout)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
+    total = calculations.calculate_checkout_total_with_gift_cards(
+        manager, checkout_info, lines, address
+    )
+    payment.is_active = False
+    payment.order = None
+    payment.total = total.gross.amount
+    payment.currency = total.gross.currency
+    payment.to_confirm = True
+    payment.save()
+
+    Transaction.objects.bulk_create(
+        [
+            Transaction(
+                payment_id=payment.id,
+                token="reference",
+                kind=TransactionKind.CAPTURE,
+                is_success=True,
+                action_required=False,
+                currency=payment.currency,
+                amount=payment.total,
+                gateway_response={},
+                already_processed=True,
+            ),
+            Transaction(
+                payment_id=payment.id,
+                token="refund-reference",
+                is_success=True,
+                kind=TransactionKind.REFUND_ONGOING,
+                action_required=False,
+                currency=payment.currency,
+                amount=payment.total,
+                gateway_response={},
+                already_processed=True,
+            ),
+            Transaction(
+                payment_id=payment.id,
+                token="refund-reference",
+                is_success=True,
+                kind=TransactionKind.REFUND,
+                action_required=False,
+                currency=payment.currency,
+                amount=payment.total,
+                gateway_response={},
+                already_processed=True,
+            ),
+        ]
+    )
+
+    payment_id = graphene.Node.to_global_id("Payment", payment.pk)
+    notification = notification(
+        psp_reference="reference",
+        merchant_reference=payment_id,
+        value=price_to_minor_unit(payment.total, payment.currency),
+    )
+    config = adyen_plugin(adyen_auto_capture=True).config
+
+    # when
+    handle_authorization(notification, config)
+
+    # then
+    payment.refresh_from_db()
+    assert not payment.order
+    assert payment.checkout
+    assert payment.captured_amount == Decimal("0")
+    assert payment.transactions.count() == 3
+
+
 @patch("saleor.payment.gateway.void")
 def test_handle_authorization_for_checkout_one_of_variants_deleted(
     void_mock,
@@ -256,9 +527,9 @@ def test_handle_authorization_for_checkout_one_of_variants_deleted(
     checkout.save()
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -303,9 +574,9 @@ def test_handle_authorization_with_adyen_auto_capture(
     checkout.save()
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -340,11 +611,7 @@ def test_handle_authorization_with_adyen_auto_capture(
 def test_handle_authorization_with_adyen_auto_capture_and_inactive_payment(
     refund_mock, notification, adyen_plugin, inactive_payment_adyen_for_checkout
 ):
-    """
-    Ensure that the refund method is called and the new capture transaction is created,
-    when the payment is inactive and there is no success capture transaction for this
-    payment.
-    """
+    """Test that refund is called for inactive payments without an existing capture transaction."""
     # given
     payment = inactive_payment_adyen_for_checkout
     payment_id = graphene.Node.to_global_id("Payment", payment.pk)
@@ -372,10 +639,7 @@ def test_handle_authorization_with_adyen_auto_capture_and_inactive_payment(
 def test_handle_authorization_adyen_auto_capture_inactive_payment_and_captured_txn(
     refund_mock, notification, adyen_plugin, inactive_payment_adyen_for_checkout
 ):
-    """
-    Ensure that the refund method is called and the new capture transaction
-    is not created, when the payment is inactive and already has capture transaction.
-    """
+    """Test that refund is called on inactive payments with existing capture transactions."""
     # given
     payment = inactive_payment_adyen_for_checkout
     psp_reference = "ABC"
@@ -484,7 +748,7 @@ def test_handle_authorization_with_adyen_auto_capture_and_payment_charged(
     assert external_events.count() == 1
 
 
-@pytest.mark.parametrize("payment_is_active", (True, False))
+@pytest.mark.parametrize("payment_is_active", [True, False])
 def test_handle_cancel(
     payment_is_active, notification, adyen_plugin, payment_adyen_for_order
 ):
@@ -592,9 +856,9 @@ def test_handle_capture_for_checkout(
     checkout_token = str(checkout.token)
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -638,11 +902,7 @@ def test_handle_capture_inactive_payment(
     address,
     shipping_method,
 ):
-    """
-    Ensure that the refund method is called and the new capture transaction is created,
-    when the payment is inactive and there is no success capture transaction for this
-    payment.
-    """
+    """Test that refund is called on inactive payments without an existing capture transaction."""
     # given
     payment = inactive_payment_adyen_for_checkout
     payment_id = graphene.Node.to_global_id("Payment", payment.pk)
@@ -675,10 +935,7 @@ def test_handle_capture_inactive_payment_capture_txn_exists(
     address,
     shipping_method,
 ):
-    """
-    Ensure that the refund method is called and the new capture transaction
-    is not created, when the payment is inactive and already has capture transaction.
-    """
+    """Test that refund is called on inactive payments with existing capture transactions."""
     # given
     payment = inactive_payment_adyen_for_checkout
     psp_reference = "ABC"
@@ -721,9 +978,7 @@ def test_handle_capture_for_checkout_order_not_created_checkout_line_variant_del
     address,
     shipping_method,
 ):
-    """
-    Ensure that payment is not captured when one of checkout line variant is deleted.
-    """
+    """Ensure that payment is not captured when a checkout line variant is deleted."""
 
     # given
     checkout = payment_adyen_for_checkout.checkout
@@ -733,9 +988,9 @@ def test_handle_capture_for_checkout_order_not_created_checkout_line_variant_del
     checkout.save()
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -1058,7 +1313,10 @@ def test_handle_refund_already_refunded(
         merchant_reference=payment_id,
         value=price_to_minor_unit(payment.total, payment.currency),
     )
-    create_new_transaction(notification, payment, TransactionKind.REFUND)
+    transaction = create_new_transaction(notification, payment, TransactionKind.REFUND)
+    transaction.already_processed = True
+    transaction.save()
+
     config = adyen_plugin().config
 
     handle_refund(notification, config)
@@ -1280,7 +1538,6 @@ def test_webhook_not_implemented_invalid_payment_id(
 def test_handle_cancel_or_refund_action_refund(
     mock_handle_refund, notification, adyen_plugin, payment_adyen_for_order
 ):
-
     payment = payment_adyen_for_order
     payment_id = graphene.Node.to_global_id("Payment", payment.pk)
     config = adyen_plugin().config
@@ -1344,7 +1601,7 @@ def test_handle_not_created_order_order_created(
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     payment_adyen_for_checkout.refresh_from_db()
@@ -1380,7 +1637,7 @@ def test_handle_not_created_order_order_not_created_checkout_line_variant_delete
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     # then
@@ -1405,7 +1662,7 @@ def test_handle_not_created_order_refund_when_create_order_raises(
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     assert payment_adyen_for_checkout.can_refund()
@@ -1428,7 +1685,7 @@ def test_handle_not_created_order_void_when_create_order_raises(
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     assert payment_adyen_for_checkout.can_void()
@@ -1455,7 +1712,7 @@ def test_handle_not_created_order_return_none(
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
 
@@ -1472,7 +1729,7 @@ def test_handle_not_created_order_create_new_success_transaction(
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     payment_adyen_for_checkout.refresh_from_db()
@@ -1501,7 +1758,7 @@ def test_handle_not_created_order_success_transaction_create_order_raises_and_re
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     payment_adyen_for_checkout.refresh_from_db()
@@ -1533,7 +1790,7 @@ def test_handle_not_created_order_success_transaction_create_order_raises_and_vo
         payment_adyen_for_checkout,
         payment_adyen_for_checkout.checkout,
         TransactionKind.CAPTURE,
-        get_plugins_manager(),
+        get_plugins_manager(allow_replica=False),
     )
 
     payment_adyen_for_checkout.refresh_from_db()
@@ -1559,7 +1816,9 @@ def test_confirm_payment_and_set_back_to_confirm(
     )
 
     confirm_payment_and_set_back_to_confirm(
-        payment_adyen_for_checkout, get_plugins_manager(), plugin.channel.slug
+        payment_adyen_for_checkout,
+        get_plugins_manager(allow_replica=False),
+        plugin.channel.slug,
     )
 
     payment_adyen_for_checkout.refresh_from_db()
@@ -1641,9 +1900,9 @@ def test_handle_order_closed_success_true(
     checkout_token = str(checkout.token)
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -1692,9 +1951,9 @@ def test_handle_order_closed_with_adyen_partial_payments_success_true(
     checkout_token = str(checkout.token)
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -1777,9 +2036,9 @@ def test_handle_order_closed_with_adyen_partial_payments_success_true_without_am
     checkout_token = str(checkout.token)
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -1872,9 +2131,9 @@ def test_order_closed_with_adyen_partial_payments_unable_to_create_order(
     checkout.save()
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )
@@ -1946,9 +2205,9 @@ def test_order_closed_with_not_active_payment(
     checkout.save()
 
     payment = payment_adyen_for_checkout
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager, checkout_info, lines, address
     )

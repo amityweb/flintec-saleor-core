@@ -1,39 +1,43 @@
-from datetime import datetime, timedelta
-from decimal import Decimal
-from unittest.mock import ANY, patch
+from unittest import mock
 
 import graphene
 import pytest
-import pytz
-from django.contrib.auth.models import AnonymousUser
-from django.db.models.aggregates import Sum
+from django.test import override_settings
 from django.utils import timezone
-from prices import Money
+from freezegun import freeze_time
+from prices import Money, TaxedMoney
 
-from .....account.models import Address
 from .....checkout import calculations
 from .....checkout.error_codes import CheckoutErrorCode
 from .....checkout.fetch import fetch_checkout_info, fetch_checkout_lines
 from .....checkout.models import Checkout
-from .....core.exceptions import InsufficientStock, InsufficientStockData
-from .....core.taxes import TaxError, zero_money, zero_taxed_money
-from .....giftcard import GiftCardEvents
-from .....giftcard.models import GiftCard, GiftCardEvent
-from .....order import OrderOrigin, OrderStatus
-from .....order.models import Fulfillment, Order
-from .....payment import ChargeStatus, PaymentError, TransactionKind
-from .....payment.gateways.dummy_credit_card import TOKEN_VALIDATION_MAPPING
-from .....payment.interface import GatewayResponse
-from .....plugins.manager import PluginsManager, get_plugins_manager
-from .....tests.utils import flush_post_commit_hooks
-from .....warehouse.models import Reservation, Stock, WarehouseClickAndCollectOption
-from .....warehouse.tests.utils import get_available_quantity_for_stock
+from .....core import EventDeliveryStatus
+from .....core.models import EventDelivery
+from .....order import OrderStatus
+from .....order.models import Order
+from .....payment.model_helpers import get_subtotal
+from .....plugins import PLUGIN_IDENTIFIER_PREFIX
+from .....plugins.manager import get_plugins_manager
+from .....plugins.tests.sample_plugins import PluginSample
+from .....plugins.webhook.conftest import (  # noqa: F401
+    tax_data_response,
+    tax_line_data_response,
+)
+from .....webhook.event_types import WebhookEventSyncType
 from ....core.utils import to_global_id_or_none
 from ....tests.utils import get_graphql_content
 
 MUTATION_CHECKOUT_COMPLETE = """
-    mutation checkoutComplete($id: ID, $redirectUrl: String) {
-        checkoutComplete(id: $id, redirectUrl: $redirectUrl) {
+    mutation checkoutComplete(
+            $id: ID,
+            $redirectUrl: String,
+            $metadata: [MetadataInput!],
+        ) {
+        checkoutComplete(
+                id: $id,
+                redirectUrl: $redirectUrl,
+                metadata: $metadata,
+            ) {
             order {
                 id
                 token
@@ -56,6 +60,27 @@ MUTATION_CHECKOUT_COMPLETE = """
                         amount
                     }
                 }
+<<<<<<< HEAD
+=======
+                subtotal {
+                    currency
+                    net {
+                        amount
+                    }
+                    gross {
+                        amount
+                    }
+                }
+                undiscountedTotal {
+                    currency
+                    net {
+                        amount
+                    }
+                    gross {
+                        amount
+                    }
+                }
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
             }
             errors {
                 field,
@@ -126,6 +151,11 @@ def test_checkout_complete_order_already_exists(
     assert order_data["origin"] == order_with_lines.origin.upper()
     assert not order_data["original"]
 
+    order = Order.objects.get()
+    subtotal = get_subtotal(order.lines.all(), order.currency)
+    assert order.subtotal == subtotal
+    assert data["order"]["subtotal"]["net"]["amount"] == subtotal.net.amount
+
 
 def test_checkout_complete_with_inactive_channel_order_already_exists(
     user_api_client,
@@ -152,6 +182,7 @@ def test_checkout_complete_with_inactive_channel_order_already_exists(
     assert data["errors"][0]["field"] == "channel"
 
 
+<<<<<<< HEAD
 def test_checkout_complete_with_inactive_channel(
     user_api_client,
     checkout_with_gift_card,
@@ -505,6 +536,8 @@ def test_checkout_complete_gift_card_bought(
     assert Fulfillment.objects.count() == 1
 
 
+=======
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 def test_checkout_complete_no_checkout_email(
     user_api_client,
     checkout_with_gift_card,
@@ -523,6 +556,7 @@ def test_checkout_complete_no_checkout_email(
     assert data["errors"][0]["code"] == CheckoutErrorCode.EMAIL_NOT_SET.name
 
 
+<<<<<<< HEAD
 def test_checkout_complete_with_variant_without_sku(
     site_settings,
     user_api_client,
@@ -2516,6 +2550,8 @@ def test_checkout_complete_product_channel_listing_not_available_for_purchase(
     assert Checkout.objects.filter(pk=checkout.pk).exists()
 
 
+=======
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 @pytest.mark.integration
 def test_checkout_complete_0_total_value_no_payment(
     user_api_client,
@@ -2524,9 +2560,12 @@ def test_checkout_complete_0_total_value_no_payment(
 ):
     checkout = checkout_with_item_total_0
     checkout.billing_address = address
-    checkout.store_value_in_metadata(items={"accepted": "true"})
-    checkout.store_value_in_private_metadata(items={"accepted": "false"})
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
     checkout.save()
+    checkout.metadata_storage.save()
 
     checkout_line = checkout.lines.first()
     checkout_line_quantity = checkout_line.quantity
@@ -2534,9 +2573,9 @@ def test_checkout_complete_0_total_value_no_payment(
 
     checkout.refresh_from_db()
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.checkout_total(
         manager=manager, checkout_info=checkout_info, lines=lines, address=address
     )
@@ -2558,8 +2597,11 @@ def test_checkout_complete_0_total_value_no_payment(
     assert str(order.id) == order_token
     assert order_id == graphene.Node.to_global_id("Order", order.id)
     assert order.total.gross == total.gross
-    assert order.metadata == checkout.metadata
-    assert order.private_metadata == checkout.private_metadata
+    subtotal = get_subtotal(order.lines.all(), order.currency)
+    assert order.subtotal == subtotal
+    assert data["order"]["subtotal"]["net"]["amount"] == subtotal.net.amount
+    assert order.metadata == checkout.metadata_storage.metadata
+    assert order.private_metadata == checkout.metadata_storage.private_metadata
 
     order_line = order.lines.first()
     assert checkout_line_quantity == order_line.quantity
@@ -2582,12 +2624,15 @@ def test_checkout_complete_0_total_value_from_voucher(
 ):
     checkout = checkout_without_shipping_required
     checkout.billing_address = address
-    checkout.store_value_in_metadata(items={"accepted": "true"})
-    checkout.store_value_in_private_metadata(items={"accepted": "false"})
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
     checkout.voucher_code = voucher.code
     checkout.discount = Money("10.00", "USD")
 
     checkout.save()
+    checkout.metadata_storage.save()
 
     checkout_line = checkout.lines.first()
     checkout_line_quantity = checkout_line.quantity
@@ -2595,9 +2640,9 @@ def test_checkout_complete_0_total_value_from_voucher(
 
     checkout.refresh_from_db()
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager=manager, checkout_info=checkout_info, lines=lines, address=address
     )
@@ -2619,8 +2664,11 @@ def test_checkout_complete_0_total_value_from_voucher(
     assert str(order.id) == order_token
     assert order_id == graphene.Node.to_global_id("Order", order.id)
     assert order.total.gross == total.gross
-    assert order.metadata == checkout.metadata
-    assert order.private_metadata == checkout.private_metadata
+    subtotal = get_subtotal(order.lines.all(), order.currency)
+    assert order.subtotal == subtotal
+    assert data["order"]["subtotal"]["net"]["amount"] == subtotal.net.amount
+    assert order.metadata == checkout.metadata_storage.metadata
+    assert order.private_metadata == checkout.metadata_storage.private_metadata
 
     order_line = order.lines.first()
     assert checkout_line_quantity == order_line.quantity
@@ -2642,10 +2690,13 @@ def test_checkout_complete_0_total_value_from_giftcard(
 ):
     checkout = checkout_without_shipping_required
     checkout.billing_address = address
-    checkout.store_value_in_metadata(items={"accepted": "true"})
-    checkout.store_value_in_private_metadata(items={"accepted": "false"})
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
     checkout.gift_cards.add(gift_card)
     checkout.save()
+    checkout.metadata_storage.save()
 
     checkout_line = checkout.lines.first()
     checkout_line_quantity = checkout_line.quantity
@@ -2653,9 +2704,9 @@ def test_checkout_complete_0_total_value_from_giftcard(
 
     checkout.refresh_from_db()
 
-    manager = get_plugins_manager()
+    manager = get_plugins_manager(allow_replica=False)
     lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
+    checkout_info = fetch_checkout_info(checkout, lines, manager)
     total = calculations.calculate_checkout_total_with_gift_cards(
         manager=manager, checkout_info=checkout_info, lines=lines, address=address
     )
@@ -2676,8 +2727,11 @@ def test_checkout_complete_0_total_value_from_giftcard(
     assert str(order.id) == order_token
     assert order_id == graphene.Node.to_global_id("Order", order.id)
     assert order.total.gross == total.gross
-    assert order.metadata == checkout.metadata
-    assert order.private_metadata == checkout.private_metadata
+    subtotal = get_subtotal(order.lines.all(), order.currency)
+    assert order.subtotal == subtotal
+    assert data["order"]["subtotal"]["net"]["amount"] == subtotal.net.amount
+    assert order.metadata == checkout.metadata_storage.metadata
+    assert order.private_metadata == checkout.metadata_storage.private_metadata
 
     order_line = order.lines.first()
     assert checkout_line_quantity == order_line.quantity
@@ -2690,48 +2744,36 @@ def test_checkout_complete_0_total_value_from_giftcard(
     ).exists(), "Checkout should have been deleted"
 
 
-def test_checkout_complete_error_when_shipping_address_doesnt_have_all_required_fields(
+@freeze_time()
+@override_settings(PLUGINS=["saleor.plugins.webhook.plugin.WebhookPlugin"])
+@mock.patch("saleor.webhook.transport.synchronous.transport.send_webhook_request_sync")
+def test_checkout_complete_fails_with_invalid_tax_app(
+    mock_request,
     user_api_client,
-    checkout_with_item,
-    gift_card,
-    payment_dummy_credit_card,
+    checkout_without_shipping_required,
+    channel_USD,
     address,
-    shipping_method,
+    tax_app,
+    tax_data_response,  # noqa: F811
+    settings,
 ):
     # given
-    shipping_address = Address.objects.create(
-        first_name="John",
-        last_name="Doe",
-        company_name="Mirumee Software",
-        street_address_1="Tęczowa 7",
-        city="WROCŁAW",
-        country="PL",
-        phone="+48713988102",
-    )  # missing postalCode
+    mock_request.return_value = tax_data_response
 
-    checkout = checkout_with_item
-    checkout.shipping_address = shipping_address
-    checkout.shipping_method = shipping_method
+    checkout = checkout_without_shipping_required
+    checkout.price_expiration = timezone.now()
+
     checkout.billing_address = address
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
+    checkout.metadata_storage.save()
     checkout.save()
 
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
-    )
-    payment = payment_dummy_credit_card
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.checkout = checkout
-    payment.token = "123"
-    payment.save()
-    assert not payment.transactions.exists()
+    channel_USD.tax_configuration.tax_app_id = "invalid"
+    channel_USD.tax_configuration.save()
 
-    orders_count = Order.objects.count()
     variables = {
         "id": to_global_id_or_none(checkout),
         "redirectUrl": "https://www.example.com",
@@ -2739,317 +2781,177 @@ def test_checkout_complete_error_when_shipping_address_doesnt_have_all_required_
 
     # when
     response = user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
+    content = get_graphql_content(response)
 
     # then
-    content = get_graphql_content(response)
     data = content["data"]["checkoutComplete"]
     assert len(data["errors"]) == 1
+    assert data["errors"][0]["code"] == CheckoutErrorCode.TAX_ERROR.name
+    assert data["errors"][0]["message"] == "Configured Tax App didn't responded."
+    assert not EventDelivery.objects.exists()
 
-    assert data["errors"][0]["code"] == "REQUIRED"
-    assert data["errors"][0]["field"] == "postalCode"
-    assert Order.objects.count() == orders_count
+    checkout.refresh_from_db()
+    assert checkout.price_expiration == timezone.now() + settings.CHECKOUT_PRICES_TTL
+    assert checkout.tax_error == "Empty tax data."
 
 
-def test_checkout_complete_error_when_shipping_address_doesnt_have_all_valid_fields(
+@freeze_time()
+@override_settings(PLUGINS=["saleor.plugins.webhook.plugin.WebhookPlugin"])
+@mock.patch("saleor.webhook.transport.synchronous.transport.send_webhook_request_sync")
+def test_checkout_complete_calls_correct_tax_app(
+    mock_request,
     user_api_client,
-    checkout_with_item,
-    gift_card,
-    payment_dummy_credit_card,
+    checkout_without_shipping_required,
+    channel_USD,
     address,
-    shipping_method,
+    tax_app,
+    tax_data_response,  # noqa: F811
+    settings,
 ):
     # given
-    shipping_address = Address.objects.create(
-        first_name="John",
-        last_name="Doe",
-        company_name="Mirumee Software",
-        street_address_1="Tęczowa 7",
-        city="WROCŁAW",
-        country="PL",
-        phone="+48713988102",
-        postal_code="XX-ABC",
-    )  # incorrect postalCode
+    mock_request.return_value = tax_data_response
 
-    checkout = checkout_with_item
-    checkout.shipping_address = shipping_address
-    checkout.shipping_method = shipping_method
+    checkout = checkout_without_shipping_required
     checkout.billing_address = address
+    checkout.price_expiration = timezone.now()
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
+    checkout.metadata_storage.save()
     checkout.save()
 
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
-    )
-    payment = payment_dummy_credit_card
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.checkout = checkout
-    payment.token = "123"
-    payment.save()
-    assert not payment.transactions.exists()
+    tax_app.identifier = "test_app"
+    tax_app.save()
+    channel_USD.tax_configuration.tax_app_id = "test_app"
+    channel_USD.tax_configuration.save()
 
-    orders_count = Order.objects.count()
     variables = {
         "id": to_global_id_or_none(checkout),
         "redirectUrl": "https://www.example.com",
     }
 
     # when
-    response = user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
+    user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
 
     # then
-    content = get_graphql_content(response)
-    data = content["data"]["checkoutComplete"]
-    assert len(data["errors"]) == 1
+    delivery = EventDelivery.objects.get()
+    assert delivery.status == EventDeliveryStatus.PENDING
+    assert delivery.event_type == WebhookEventSyncType.CHECKOUT_CALCULATE_TAXES
+    assert delivery.webhook.app == tax_app
+    mock_request.assert_called_once_with(delivery)
 
-    assert data["errors"][0]["code"] == "INVALID"
-    assert data["errors"][0]["field"] == "postalCode"
-    assert Order.objects.count() == orders_count
+    checkout.refresh_from_db()
+    assert checkout.price_expiration == timezone.now() + settings.CHECKOUT_PRICES_TTL
+    assert checkout.tax_error is None
 
 
-def test_checkout_complete_error_when_billing_address_doesnt_have_all_required_fields(
+@freeze_time()
+@mock.patch(
+    "saleor.plugins.tests.sample_plugins.PluginSample.calculate_checkout_line_total"
+)
+@override_settings(PLUGINS=["saleor.plugins.tests.sample_plugins.PluginSample"])
+def test_checkout_complete_calls_failing_plugin(
+    mock_calculate_checkout_line_total,
     user_api_client,
-    checkout_with_item,
-    gift_card,
-    payment_dummy_credit_card,
+    checkout_without_shipping_required,
+    channel_USD,
     address,
-    shipping_method,
+    settings,
 ):
     # given
-    billing_address = Address.objects.create(
-        first_name="John",
-        last_name="Doe",
-        company_name="Mirumee Software",
-        street_address_1="Tęczowa 7",
-        city="WROCŁAW",
-        country="PL",
-        phone="+48713988102",
-    )  # missing postalCode
+    def side_effect(checkout_info, *args, **kwargs):
+        price = Money("10.0", checkout_info.checkout.currency)
+        checkout_info.checkout.tax_error = "Test error"
+        return TaxedMoney(price, price)
 
-    checkout = checkout_with_item
-    checkout.billing_address = billing_address
-    checkout.shipping_method = shipping_method
-    checkout.shipping_address = address
-    checkout.save()
+    mock_calculate_checkout_line_total.side_effect = side_effect
 
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
-    )
-    payment = payment_dummy_credit_card
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.checkout = checkout
-    payment.token = "123"
-    payment.save()
-    assert not payment.transactions.exists()
-
-    orders_count = Order.objects.count()
-    variables = {
-        "id": to_global_id_or_none(checkout),
-        "redirectUrl": "https://www.example.com",
-    }
-
-    # when
-    response = user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
-
-    # then
-    content = get_graphql_content(response)
-    data = content["data"]["checkoutComplete"]
-    assert len(data["errors"]) == 1
-    assert data["errors"][0]["code"] == "REQUIRED"
-    assert data["errors"][0]["field"] == "postalCode"
-    assert Order.objects.count() == orders_count
-
-
-def test_checkout_complete_error_when_billing_address_doesnt_have_all_valid_fields(
-    user_api_client,
-    checkout_with_item,
-    gift_card,
-    payment_dummy_credit_card,
-    address,
-    shipping_method,
-):
-    # given
-    billing_address = Address.objects.create(
-        first_name="John",
-        last_name="Doe",
-        company_name="Mirumee Software",
-        street_address_1="Tęczowa 7",
-        city="WROCŁAW",
-        country="PL",
-        phone="+48713988102",
-        postal_code="XX-ABC",
-    )  # incorrect postalCode
-
-    checkout = checkout_with_item
-    checkout.billing_address = billing_address
-    checkout.shipping_method = shipping_method
-    checkout.shipping_address = address
-    checkout.save()
-
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
-    )
-    payment = payment_dummy_credit_card
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.checkout = checkout
-    payment.token = "123"
-    payment.save()
-    assert not payment.transactions.exists()
-
-    orders_count = Order.objects.count()
-    variables = {
-        "id": to_global_id_or_none(checkout),
-        "redirectUrl": "https://www.example.com",
-    }
-
-    # when
-    response = user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
-
-    # then
-    content = get_graphql_content(response)
-    data = content["data"]["checkoutComplete"]
-    assert len(data["errors"]) == 1
-
-    assert data["errors"][0]["code"] == "INVALID"
-    assert data["errors"][0]["field"] == "postalCode"
-    assert Order.objects.count() == orders_count
-
-
-def test_checkout_complete_with_not_normalized_shipping_address(
-    site_settings,
-    user_api_client,
-    checkout_with_gift_card,
-    gift_card,
-    payment_dummy,
-    address,
-    shipping_method,
-):
-    # given
-    assert not gift_card.last_used_on
-
-    checkout = checkout_with_gift_card
-    shipping_address = Address.objects.create(
-        **{
-            "country": "US",
-            "city": "Washington",
-            "country_area": "District of Columbia",
-            "street_address_1": "1600 Pennsylvania Avenue NW",
-            "postal_code": "20500",
-        }
-    )
-    checkout.shipping_address = shipping_address
-    checkout.shipping_method = shipping_method
+    checkout = checkout_without_shipping_required
     checkout.billing_address = address
-    checkout.store_value_in_metadata(items={"accepted": "true"})
-    checkout.store_value_in_private_metadata(items={"accepted": "false"})
+    checkout.price_expiration = timezone.now()
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
+    checkout.metadata_storage.save()
     checkout.save()
 
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
+    channel_USD.tax_configuration.tax_app_id = (
+        PLUGIN_IDENTIFIER_PREFIX + PluginSample.PLUGIN_ID
     )
-    payment = payment_dummy
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.checkout = checkout
-    payment.save()
-    assert not payment.transactions.exists()
+    channel_USD.tax_configuration.save()
 
-    redirect_url = "https://www.example.com"
-    variables = {"id": to_global_id_or_none(checkout), "redirectUrl": redirect_url}
+    variables = {
+        "id": to_global_id_or_none(checkout),
+        "redirectUrl": "https://www.example.com",
+    }
 
     # when
     response = user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
+    content = get_graphql_content(response)
 
     # then
-    content = get_graphql_content(response)
     data = content["data"]["checkoutComplete"]
-    assert not data["errors"]
+    assert len(data["errors"]) == 1
+    assert data["errors"][0]["code"] == CheckoutErrorCode.TAX_ERROR.name
+    assert data["errors"][0]["message"] == "Configured Tax App didn't responded."
 
-    order = Order.objects.first()
-    shipping_address = order.shipping_address
-    assert shipping_address
-    assert shipping_address.city == "WASHINGTON"
-    assert shipping_address.country_area == "DC"
+    checkout.refresh_from_db()
+    assert checkout.price_expiration == timezone.now() + settings.CHECKOUT_PRICES_TTL
+    assert checkout.tax_error == "Empty tax data."
 
 
-def test_checkout_complete_with_not_normalized_billing_address(
-    site_settings,
+@freeze_time()
+@override_settings(PLUGINS=["saleor.plugins.webhook.plugin.WebhookPlugin"])
+@mock.patch("saleor.webhook.transport.synchronous.transport.send_webhook_request_sync")
+def test_checkout_complete_calls_correct_force_tax_calculation_when_tax_error_was_saved(
+    mock_request,
     user_api_client,
-    checkout_with_gift_card,
-    gift_card,
-    payment_dummy,
+    checkout_without_shipping_required,
+    channel_USD,
     address,
-    shipping_method,
+    tax_app,
+    tax_data_response,  # noqa: F811
+    settings,
 ):
     # given
-    assert not gift_card.last_used_on
+    mock_request.return_value = tax_data_response
 
-    checkout = checkout_with_gift_card
-    billing_address = Address.objects.create(
-        **{
-            "country": "US",
-            "city": "Washington",
-            "country_area": "District of Columbia",
-            "street_address_1": "1600 Pennsylvania Avenue NW",
-            "postal_code": "20500",
-        }
+    checkout = checkout_without_shipping_required
+    checkout.billing_address = address
+    checkout.price_expiration = (
+        timezone.now() + settings.CHECKOUT_PRICES_TTL + timezone.timedelta(hours=1)
     )
-    checkout.shipping_address = address
-    checkout.shipping_method = shipping_method
-    checkout.billing_address = billing_address
-    checkout.store_value_in_metadata(items={"accepted": "true"})
-    checkout.store_value_in_private_metadata(items={"accepted": "false"})
+    checkout.tax_error = "Test error."
+
+    checkout.metadata_storage.store_value_in_metadata(items={"accepted": "true"})
+    checkout.metadata_storage.store_value_in_private_metadata(
+        items={"accepted": "false"}
+    )
+    checkout.metadata_storage.save()
     checkout.save()
 
-    manager = get_plugins_manager()
-    lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(checkout, lines, [], manager)
-    total = calculations.calculate_checkout_total_with_gift_cards(
-        manager, checkout_info, lines, address
-    )
-    payment = payment_dummy
-    payment.is_active = True
-    payment.order = None
-    payment.total = total.gross.amount
-    payment.currency = total.gross.currency
-    payment.checkout = checkout
-    payment.save()
-    assert not payment.transactions.exists()
+    tax_app.identifier = "test_app"
+    tax_app.save()
+    channel_USD.tax_configuration.tax_app_id = "test_app"
+    channel_USD.tax_configuration.save()
 
-    redirect_url = "https://www.example.com"
-    variables = {"id": to_global_id_or_none(checkout), "redirectUrl": redirect_url}
+    variables = {
+        "id": to_global_id_or_none(checkout),
+        "redirectUrl": "https://www.example.com",
+    }
 
     # when
-    response = user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
+    user_api_client.post_graphql(MUTATION_CHECKOUT_COMPLETE, variables)
 
     # then
-    content = get_graphql_content(response)
-    data = content["data"]["checkoutComplete"]
-    assert not data["errors"]
+    delivery = EventDelivery.objects.get()
+    assert delivery.status == EventDeliveryStatus.PENDING
+    assert delivery.event_type == WebhookEventSyncType.CHECKOUT_CALCULATE_TAXES
+    assert delivery.webhook.app == tax_app
+    mock_request.assert_called_once_with(delivery)
 
-    order = Order.objects.first()
-    billing_address = order.billing_address
-    assert billing_address
-    assert billing_address.city == "WASHINGTON"
-    assert billing_address.country_area == "DC"
+    checkout.refresh_from_db()
+    assert checkout.price_expiration == timezone.now() + settings.CHECKOUT_PRICES_TTL
+    assert checkout.tax_error is None

@@ -27,45 +27,51 @@ PRICE_BASED_SHIPPING_MUTATION = """
         $addPostalCodeRules: [ShippingPostalCodeRulesCreateInputRange!]
         $deletePostalCodeRules: [ID!]
         $inclusionType: PostalCodeRuleInclusionTypeEnum
+        $taxClass: ID
     ) {
-    shippingPriceCreate(
-        input: {
-            name: $name, shippingZone: $shippingZone, type: $type,
-            maximumDeliveryDays: $maximumDeliveryDays,
-            minimumDeliveryDays: $minimumDeliveryDays,
-            addPostalCodeRules: $addPostalCodeRules,
-            deletePostalCodeRules: $deletePostalCodeRules,
-            inclusionType: $inclusionType, description: $description
-        }) {
-        errors {
-            field
-            code
-        }
-        shippingZone {
-            id
-        }
-        shippingMethod {
-            id
-            name
-            description
-            channelListings {
-            price {
-                amount
+        shippingPriceCreate(
+            input: {
+                name: $name, shippingZone: $shippingZone, type: $type,
+                maximumDeliveryDays: $maximumDeliveryDays,
+                minimumDeliveryDays: $minimumDeliveryDays,
+                addPostalCodeRules: $addPostalCodeRules,
+                deletePostalCodeRules: $deletePostalCodeRules,
+                inclusionType: $inclusionType,
+                description: $description,
+                taxClass: $taxClass
+            }) {
+            errors {
+                field
+                code
             }
-            minimumOrderPrice {
-                amount
+            shippingZone {
+                id
             }
-            maximumOrderPrice {
-                amount
-            }
-            }
-            type
-            minimumDeliveryDays
-            maximumDeliveryDays
-            postalCodeRules {
-                start
-                end
-            }
+            shippingMethod {
+                id
+                name
+                description
+                channelListings {
+                    price {
+                        amount
+                    }
+                    minimumOrderPrice {
+                        amount
+                    }
+                    maximumOrderPrice {
+                        amount
+                    }
+                }
+                taxClass {
+                    id
+                }
+                type
+                minimumDeliveryDays
+                maximumDeliveryDays
+                postalCodeRules {
+                    start
+                    end
+                }
             }
         }
     }
@@ -84,12 +90,15 @@ def test_create_shipping_method(
     shipping_zone,
     postal_code_rules,
     permission_manage_shipping,
+    tax_classes,
 ):
+    # given
     name = "DHL"
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     max_del_days = 10
     min_del_days = 3
     description = dummy_editorjs("description", True)
+    tax_class_id = graphene.Node.to_global_id("TaxClass", tax_classes[0].pk)
     variables = {
         "shippingZone": shipping_zone_id,
         "name": name,
@@ -100,12 +109,17 @@ def test_create_shipping_method(
         "addPostalCodeRules": postal_code_rules,
         "deletePostalCodeRules": [],
         "inclusionType": PostalCodeRuleInclusionTypeEnum.EXCLUDE.name,
+        "taxClass": tax_class_id,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         PRICE_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     errors = data["errors"]
@@ -117,6 +131,7 @@ def test_create_shipping_method(
     assert data["shippingMethod"]["minimumDeliveryDays"] == min_del_days
     assert data["shippingMethod"]["maximumDeliveryDays"] == max_del_days
     assert data["shippingMethod"]["postalCodeRules"] == postal_code_rules
+    assert data["shippingMethod"]["taxClass"]["id"] == tax_class_id
 
 
 @freeze_time("2022-05-12 12:00:00")
@@ -185,6 +200,7 @@ def test_create_shipping_method_trigger_webhook(
         [any_webhook],
         shipping_method,
         SimpleLazyObject(lambda: staff_api_client.user),
+        allow_replica=False,
     )
 
 
@@ -193,6 +209,7 @@ def test_create_shipping_method_minimum_delivery_days_higher_than_maximum(
     shipping_zone,
     permission_manage_shipping,
 ):
+    # given
     name = "DHL"
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     max_del_days = 3
@@ -204,11 +221,15 @@ def test_create_shipping_method_minimum_delivery_days_higher_than_maximum(
         "maximumDeliveryDays": max_del_days,
         "minimumDeliveryDays": min_del_days,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         PRICE_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     errors = data["errors"]
@@ -223,6 +244,7 @@ def test_create_shipping_method_minimum_delivery_days_below_0(
     shipping_zone,
     permission_manage_shipping,
 ):
+    # given
     name = "DHL"
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     max_del_days = 3
@@ -234,11 +256,15 @@ def test_create_shipping_method_minimum_delivery_days_below_0(
         "maximumDeliveryDays": max_del_days,
         "minimumDeliveryDays": min_del_days,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         PRICE_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     errors = data["errors"]
@@ -253,6 +279,7 @@ def test_create_shipping_method_maximum_delivery_days_below_0(
     shipping_zone,
     permission_manage_shipping,
 ):
+    # given
     name = "DHL"
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     max_del_days = -1
@@ -264,11 +291,15 @@ def test_create_shipping_method_maximum_delivery_days_below_0(
         "maximumDeliveryDays": max_del_days,
         "minimumDeliveryDays": min_del_days,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         PRICE_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     errors = data["errors"]
@@ -283,6 +314,7 @@ def test_create_shipping_method_postal_code_duplicate_entry(
     shipping_zone,
     permission_manage_shipping,
 ):
+    # given
     name = "DHL"
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     max_del_days = 10
@@ -300,11 +332,15 @@ def test_create_shipping_method_postal_code_duplicate_entry(
         "addPostalCodeRules": postal_code_rules,
         "inclusionType": PostalCodeRuleInclusionTypeEnum.EXCLUDE.name,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         PRICE_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     errors = data["errors"]
@@ -319,6 +355,7 @@ def test_create_shipping_method_postal_code_missing_inclusion_type(
     shipping_zone,
     permission_manage_shipping,
 ):
+    # given
     name = "DHL"
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     max_del_days = 10
@@ -334,11 +371,15 @@ def test_create_shipping_method_postal_code_missing_inclusion_type(
         "minimumDeliveryDays": min_del_days,
         "addPostalCodeRules": postal_code_rules,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         PRICE_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     errors = data["errors"]
@@ -386,8 +427,8 @@ WEIGHT_BASED_SHIPPING_MUTATION = """
 
 
 @pytest.mark.parametrize(
-    "min_weight, max_weight, expected_min_weight, expected_max_weight",
-    (
+    ("min_weight", "max_weight", "expected_min_weight", "expected_max_weight"),
+    [
         (
             10.32,
             15.64,
@@ -395,7 +436,7 @@ WEIGHT_BASED_SHIPPING_MUTATION = """
             {"value": 15.64, "unit": WeightUnitsEnum.KG.name},
         ),
         (10.92, None, {"value": 10.92, "unit": WeightUnitsEnum.KG.name}, None),
-    ),
+    ],
 )
 def test_create_weight_based_shipping_method(
     shipping_zone,
@@ -406,6 +447,7 @@ def test_create_weight_based_shipping_method(
     expected_max_weight,
     permission_manage_shipping,
 ):
+    # given
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     variables = {
         "shippingZone": shipping_zone_id,
@@ -414,11 +456,15 @@ def test_create_weight_based_shipping_method(
         "maximumOrderWeight": max_weight,
         "type": ShippingMethodTypeEnum.WEIGHT.name,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         WEIGHT_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     assert data["shippingMethod"]["minimumOrderWeight"] == expected_min_weight
@@ -429,6 +475,7 @@ def test_create_weight_based_shipping_method(
 def test_create_weight_shipping_method_errors(
     shipping_zone, staff_api_client, permission_manage_shipping
 ):
+    # given
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     variables = {
         "shippingZone": shipping_zone_id,
@@ -437,11 +484,15 @@ def test_create_weight_shipping_method_errors(
         "maximumOrderWeight": 15,
         "type": ShippingMethodTypeEnum.WEIGHT.name,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         WEIGHT_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     assert data["errors"][0]["code"] == ShippingErrorCode.MAX_LESS_THAN_MIN.name
@@ -450,6 +501,7 @@ def test_create_weight_shipping_method_errors(
 def test_create_shipping_method_with_negative_min_weight(
     shipping_zone, staff_api_client, permission_manage_shipping
 ):
+    # given
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     variables = {
         "shippingZone": shipping_zone_id,
@@ -457,11 +509,15 @@ def test_create_shipping_method_with_negative_min_weight(
         "minimumOrderWeight": -20,
         "type": ShippingMethodTypeEnum.WEIGHT.name,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         WEIGHT_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     error = data["errors"][0]
@@ -472,6 +528,7 @@ def test_create_shipping_method_with_negative_min_weight(
 def test_create_shipping_method_with_negative_max_weight(
     shipping_zone, staff_api_client, permission_manage_shipping
 ):
+    # given
     shipping_zone_id = graphene.Node.to_global_id("ShippingZone", shipping_zone.pk)
     variables = {
         "shippingZone": shipping_zone_id,
@@ -479,11 +536,15 @@ def test_create_shipping_method_with_negative_max_weight(
         "maximumOrderWeight": -15,
         "type": ShippingMethodTypeEnum.WEIGHT.name,
     }
+
+    # when
     response = staff_api_client.post_graphql(
         WEIGHT_BASED_SHIPPING_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingPriceCreate"]
     error = data["errors"][0]

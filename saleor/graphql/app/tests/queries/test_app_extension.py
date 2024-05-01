@@ -86,6 +86,32 @@ def test_app_extension_by_app(app, app_api_client, permission_manage_products):
     assert app_extension.permissions.first().codename == permission_code
 
 
+def test_app_extensions_app_removed_app(
+    staff_api_client, removed_app, permission_manage_products
+):
+    # given
+    app_extension = AppExtension.objects.create(
+        app=removed_app,
+        label="Create product with App",
+        url="https://www.example.com/app-product",
+        mount=AppExtensionMount.PRODUCT_OVERVIEW_MORE_ACTIONS,
+    )
+    app_extension.permissions.add(permission_manage_products)
+    id = graphene.Node.to_global_id("AppExtension", app_extension.id)
+    variables = {"id": id}
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_APP_EXTENSION,
+        variables,
+    )
+
+    # then
+    content = get_graphql_content(response)
+    extension_data = content["data"]["appExtension"]
+    assert extension_data is None
+
+
 def test_app_extension_normal_user(app, user_api_client, permission_manage_products):
     # given
     app_extension = AppExtension.objects.create(
@@ -175,6 +201,48 @@ def test_app_extension_staff_user_fetching_access_token(
     assert set(decoded_token["permissions"]) == set(
         ["MANAGE_PRODUCTS", "MANAGE_ORDERS"]
     )
+
+
+def test_app_extension_access_token_with_audience(
+    app,
+    staff_api_client,
+    permission_manage_orders,
+    permission_manage_products,
+    permission_manage_apps,
+    site_settings,
+):
+    # given
+    app.audience = f"https://{site_settings.site.domain}.com/app-123"
+    app.save()
+    app_extension = AppExtension.objects.create(
+        app=app,
+        label="Create product with App",
+        url="https://www.example.com/app-product",
+        mount=AppExtensionMount.PRODUCT_OVERVIEW_MORE_ACTIONS,
+    )
+    app_extension.permissions.add(permission_manage_products, permission_manage_orders)
+    id = graphene.Node.to_global_id("AppExtension", app_extension.id)
+    variables = {"id": id}
+
+    # when
+    response = staff_api_client.post_graphql(
+        QUERY_APP_EXTENSION,
+        variables,
+        permissions=[
+            permission_manage_orders,
+            permission_manage_products,
+            permission_manage_apps,
+        ],
+        check_no_permissions=False,
+    )
+
+    # then
+    content = get_graphql_content(response)
+    extension_data = content["data"]["appExtension"]
+
+    assert extension_data["accessToken"]
+    decoded_token = jwt_decode(extension_data["accessToken"])
+    assert decoded_token["aud"] == app.audience
 
 
 def test_app_extension_staff_user_partial_permission(

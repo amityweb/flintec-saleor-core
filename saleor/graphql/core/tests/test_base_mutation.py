@@ -3,13 +3,16 @@ from unittest import mock
 import graphene
 import pytest
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.functional import SimpleLazyObject
+from freezegun import freeze_time
 from graphql import GraphQLError
 from graphql.execution import ExecutionResult
 
-from saleor.core.permissions import ProductPermissions
-from saleor.plugins.tests.sample_plugins import PluginSample
-
+from ....core.jwt import create_access_token
+from ....graphql.tests.utils import get_graphql_content
 from ....order.models import Order
+from ....permission.enums import ProductPermissions
+from ....plugins.tests.sample_plugins import PluginSample
 from ....product.models import Product
 from ...order import types as order_types
 from ...product import types as product_types
@@ -47,7 +50,7 @@ class MutationWithCustomErrors(Mutation):
 
 
 class RestrictedMutation(Mutation):
-    """A mutation requiring the user to have given permissions"""
+    """A mutation requiring the user to have certain permissions."""
 
     auth_token = graphene.types.String(
         description="The newly created authentication token."
@@ -145,7 +148,7 @@ def test_user_error_nonexistent_id(schema_context, channel_USD):
     user_errors = result.data["test"]["errors"]
     assert user_errors
     assert user_errors[0]["field"] == "productId"
-    assert user_errors[0]["message"] == "Couldn't resolve id: not-really."
+    assert user_errors[0]["message"] == "Invalid ID: not-really. Expected: Product."
 
 
 TEST_ORDER_MUTATION = """
@@ -162,8 +165,6 @@ TEST_ORDER_MUTATION = """
 
 
 def test_order_mutation_resolve_uuid_id(order, schema_context, channel_USD):
-    """Ensure that order migrations can be perfromed with use of
-    new order id (uuid type)."""
     order_id = graphene.Node.to_global_id("Order", order.pk)
     variables = {"id": order_id, "channel": channel_USD.slug}
     result = schema.execute(
@@ -174,8 +175,6 @@ def test_order_mutation_resolve_uuid_id(order, schema_context, channel_USD):
 
 
 def test_order_mutation_for_old_int_id(order, schema_context, channel_USD):
-    """Ensure that order migrations for orders with `use_old_id` flag set to True,
-    can be perfromed with use of old order id (int type)."""
     order.use_old_id = True
     order.save(update_fields=["use_old_id"])
 
@@ -226,7 +225,10 @@ def test_user_error_id_of_different_type(product, schema_context, channel_USD):
     user_errors = result.data["test"]["errors"]
     assert user_errors
     assert user_errors[0]["field"] == "productId"
-    assert user_errors[0]["message"] == "Must receive a Product id."
+    assert (
+        user_errors[0]["message"]
+        == f"Invalid ID: {variant_id}. Expected: Product, received: ProductVariant."
+    )
 
 
 def test_get_node_or_error_returns_null_for_empty_id():
@@ -242,9 +244,6 @@ def test_mutation_plugin_perform_mutation_handles_graphql_error(
     product,
     channel_USD,
 ):
-    """Ensure when the mutation calls the method 'perform_mutation' on plugins,
-    the returned error "GraphQLError" is properly returned and transformed into a dict
-    """
     settings.PLUGINS = [
         "saleor.plugins.tests.sample_plugins.PluginSample",
     ]
@@ -281,9 +280,6 @@ def test_mutation_plugin_perform_mutation_handles_custom_execution_result(
     product,
     channel_USD,
 ):
-    """Ensure when the mutation calls the method 'perform_mutation' on plugins,
-    if a "ExecutionResult" object is returned, then the GraphQL response contains it
-    """
     settings.PLUGINS = [
         "saleor.plugins.tests.sample_plugins.PluginSample",
     ]
@@ -328,10 +324,6 @@ def test_mutation_calls_plugin_perform_mutation_after_permission_checks(
     channel_USD,
     permission_manage_products,
 ):
-    """
-    Ensure the mutation calls the method 'perform_mutation' on plugins only once the
-    user/app permissions are verified
-    """
     mutation_query = """
         mutation testRestrictedMutation($productId: ID!, $channel: String) {
             restrictedMutation(productId: $productId, channel: $channel) {
@@ -349,7 +341,7 @@ def test_mutation_calls_plugin_perform_mutation_after_permission_checks(
     ]
 
     schema_context = request.getfixturevalue("schema_context")
-    schema_context.user = staff_user
+    schema_context.user = SimpleLazyObject(lambda: staff_user)
 
     product_id = graphene.Node.to_global_id("Product", product.pk)
     variables = {"productId": product_id, "channel": channel_USD.slug}
@@ -359,7 +351,10 @@ def test_mutation_calls_plugin_perform_mutation_after_permission_checks(
         mutation_query, variables=variables, context_value=schema_context
     )
     assert len(result.errors) == 1, result.to_dict()
-    assert "You need one of the following permissions" in result.errors[0].message
+    assert (
+        "To access this path, you need one of the following permissions"
+        in result.errors[0].message
+    )
 
     # When permission is not missing, the execution of the plugin should happen
     staff_user.user_permissions.set([permission_manage_products])
@@ -429,3 +424,36 @@ def test_base_mutation_get_node_by_pk_with_qs_for_product(staff_user, product):
 
     # then
     assert node.id == product.id
+
+
+def test_expired_token_error(user_api_client, channel_USD):
+    # given
+    user = user_api_client.user
+    with freeze_time("2023-01-01 12:00:00"):
+        expired_access_token = create_access_token(user)
+        user_api_client.token = expired_access_token
+
+    mutation = """
+      mutation createCheckout($checkoutInput: CheckoutCreateInput!) {
+        checkoutCreate(input: $checkoutInput) {
+          checkout {
+            id
+          }
+          errors {
+            field
+            message
+            code
+          }
+        }
+      }
+    """
+
+    # when
+    variables = {"checkoutInput": {"channel": channel_USD.slug, "lines": []}}
+    response = user_api_client.post_graphql(mutation, variables)
+    content = get_graphql_content(response, ignore_errors=True)
+
+    # then
+    error = content["errors"][0]
+    assert error["message"] == "Signature has expired"
+    assert error["extensions"]["exception"]["code"] == "ExpiredSignatureError"

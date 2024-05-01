@@ -10,10 +10,10 @@ from ....attribute.models import AttributeValue
 from ....attribute.utils import associate_attribute_values_to_instance
 from ....checkout.fetch import fetch_checkout_info, fetch_checkout_lines
 from ....checkout.utils import add_variant_to_checkout, calculate_checkout_quantity
+from ....discount.utils import get_active_catalogue_promotion_rules
 from ....order import OrderEvents, OrderStatus
 from ....order.models import OrderEvent, OrderLine
 from ....plugins.manager import get_plugins_manager
-from ....product import ProductTypeKind
 from ....product.error_codes import ProductErrorCode
 from ....product.models import (
     Category,
@@ -30,29 +30,6 @@ from ....tests.utils import flush_post_commit_hooks
 from ....thumbnail.models import Thumbnail
 from ...tests.utils import get_graphql_content
 
-
-@pytest.fixture
-def category_list():
-    category_1 = Category.objects.create(name="Category 1", slug="category-1")
-    category_2 = Category.objects.create(name="Category 2", slug="category-2")
-    category_3 = Category.objects.create(name="Category 3", slug="category-3")
-    return category_1, category_2, category_3
-
-
-@pytest.fixture
-def product_type_list():
-    product_type_1 = ProductType.objects.create(
-        name="Type 1", slug="type-1", kind=ProductTypeKind.NORMAL
-    )
-    product_type_2 = ProductType.objects.create(
-        name="Type 2", slug="type-2", kind=ProductTypeKind.NORMAL
-    )
-    product_type_3 = ProductType.objects.create(
-        name="Type 3", slug="type-3", kind=ProductTypeKind.NORMAL
-    )
-    return product_type_1, product_type_2, product_type_3
-
-
 MUTATION_CATEGORY_BULK_DELETE = """
     mutation categoryBulkDelete($ids: [ID!]!) {
         categoryBulkDelete(ids: $ids) {
@@ -62,18 +39,33 @@ MUTATION_CATEGORY_BULK_DELETE = """
 """
 
 
-def test_delete_categories(staff_api_client, category_list, permission_manage_products):
+def test_delete_categories(
+    staff_api_client,
+    category_list,
+    product_list,
+    permission_manage_products,
+):
+    # given
+    for product, category in zip(product_list, category_list):
+        product.category = category
+
+    Product.objects.bulk_update(product_list, ["category"])
+
     variables = {
         "ids": [
             graphene.Node.to_global_id("Category", category.id)
             for category in category_list
         ]
     }
+
+    # when
     response = staff_api_client.post_graphql(
         MUTATION_CATEGORY_BULK_DELETE,
         variables,
         permissions=[permission_manage_products],
     )
+
+    # then
     content = get_graphql_content(response)
 
     assert content["data"]["categoryBulkDelete"]["count"] == 3
@@ -82,7 +74,39 @@ def test_delete_categories(staff_api_client, category_list, permission_manage_pr
     ).exists()
 
 
-@patch("saleor.plugins.webhook.plugin.get_webhooks_for_event")
+def test_delete_categories_invalidate_active_promotion_rules(
+    staff_api_client,
+    category_list,
+    product_list,
+    permission_manage_products,
+    catalogue_promotion,
+):
+    # given
+    for product, category in zip(product_list, category_list):
+        product.category = category
+
+    Product.objects.bulk_update(product_list, ["category"])
+
+    variables = {
+        "ids": [
+            graphene.Node.to_global_id("Category", category.id)
+            for category in category_list
+        ]
+    }
+
+    # when
+    response = staff_api_client.post_graphql(
+        MUTATION_CATEGORY_BULK_DELETE,
+        variables,
+        permissions=[permission_manage_products],
+    )
+
+    # then
+    get_graphql_content(response)
+    assert not catalogue_promotion.rules.filter(variants_dirty=True).exists()
+
+
+@patch("saleor.product.utils.get_webhooks_for_event")
 @patch("saleor.plugins.webhook.plugin.trigger_webhooks_async")
 def test_delete_categories_trigger_webhook(
     mocked_webhook_trigger,
@@ -160,14 +184,22 @@ def test_delete_categories_with_images(
     assert not Thumbnail.objects.all()
 
 
+@patch("saleor.product.utils.get_webhooks_for_event")
 @patch("saleor.plugins.manager.PluginsManager.product_updated")
 def test_delete_categories_trigger_product_updated_webhook(
     product_updated_mock,
+    mocked_get_webhooks_for_event,
     staff_api_client,
     category_list,
     product_list,
     permission_manage_products,
+    any_webhook,
+    settings,
 ):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
+
     first_product = product_list[0]
     first_product.category = category_list[0]
     first_product.save()
@@ -198,9 +230,7 @@ def test_delete_categories_trigger_product_updated_webhook(
     assert product_updated_mock.call_count == 2
 
 
-@patch("saleor.product.utils.update_products_discounted_prices_task")
 def test_delete_categories_with_subcategories_and_products(
-    mock_update_products_discounted_prices_task,
     staff_api_client,
     category_list,
     permission_manage_products,
@@ -253,14 +283,6 @@ def test_delete_categories_with_subcategories_and_products(
         id__in=[category.id for category in category_list]
     ).exists()
 
-    mock_update_products_discounted_prices_task.delay.assert_called_once()
-    (
-        _call_args,
-        call_kwargs,
-    ) = mock_update_products_discounted_prices_task.delay.call_args
-
-    assert set(call_kwargs["product_ids"]) == set([p.pk for p in product_list])
-
     for product in product_list:
         product.refresh_from_db()
         assert not product.category
@@ -271,6 +293,7 @@ def test_delete_categories_with_subcategories_and_products(
     for product_channel_listing in product_channel_listings:
         assert product_channel_listing.is_published is False
         assert not product_channel_listing.published_at
+        assert product_channel_listing.discounted_price_dirty is False
     assert product_channel_listings.count() == 3
 
 
@@ -284,9 +307,16 @@ MUTATION_COLLECTION_BULK_DELETE = """
 
 
 def test_delete_collections(
-    staff_api_client, collection_list, permission_manage_products
+    staff_api_client,
+    collection_list,
+    product_list,
+    permission_manage_products,
 ):
+    # given
     query = MUTATION_COLLECTION_BULK_DELETE
+
+    for product, collection in zip(product_list, collection_list):
+        collection.products.add(product)
 
     variables = {
         "ids": [
@@ -294,15 +324,22 @@ def test_delete_collections(
             for collection in collection_list
         ]
     }
+
+    # when
     response = staff_api_client.post_graphql(
         query, variables, permissions=[permission_manage_products]
     )
+
+    # then
     content = get_graphql_content(response)
 
     assert content["data"]["collectionBulkDelete"]["count"] == 3
     assert not Collection.objects.filter(
         id__in=[collection.id for collection in collection_list]
     ).exists()
+
+    for rule in get_active_catalogue_promotion_rules():
+        assert rule.variants_dirty
 
 
 def test_delete_collections_with_images(
@@ -348,13 +385,23 @@ def test_delete_collections_with_images(
     assert not Thumbnail.objects.all()
 
 
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "collection_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.plugins.manager.PluginsManager.collection_deleted")
 def test_delete_collections_trigger_collection_deleted_webhook(
     collection_deleted_mock,
+    mocked_get_webhooks_for_event,
     staff_api_client,
     collection_list,
     permission_manage_products,
+    any_webhook,
+    settings,
 ):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
     variables = {
         "ids": [
             graphene.Node.to_global_id("Collection", collection.id)
@@ -375,14 +422,24 @@ def test_delete_collections_trigger_collection_deleted_webhook(
     assert len(collection_list) == collection_deleted_mock.call_count
 
 
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "collection_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.plugins.manager.PluginsManager.product_updated")
 def test_delete_collections_trigger_product_updated_webhook(
     product_updated_mock,
+    mocked_get_webhooks_for_event,
     staff_api_client,
     collection_list,
     product_list,
     permission_manage_products,
+    any_webhook,
+    settings,
 ):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
     for collection in collection_list:
         collection.products.add(*product_list)
     variables = {
@@ -440,7 +497,7 @@ def test_delete_products(
     for variant in [product_list[0].variants.first(), product_list[1].variants.first()]:
         product = variant.product
         variant_channel_listing = variant.channel_listings.get(channel=channel_USD)
-        net = variant.get_price(product, [], channel_USD, variant_channel_listing, None)
+        net = variant.get_price(variant_channel_listing)
         gross = Money(amount=net.amount, currency=net.currency)
         quantity = 3
         total_price = TaxedMoney(net=net * quantity, gross=gross * quantity)
@@ -557,7 +614,10 @@ def test_delete_products_with_images(
     mocked_recalculate_orders_task.assert_not_called()
 
 
-@patch("saleor.plugins.webhook.plugin.get_webhooks_for_event")
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.plugins.webhook.plugin.trigger_webhooks_async")
 @patch("saleor.order.tasks.recalculate_orders_task.delay")
 def test_delete_products_trigger_webhook(
@@ -592,7 +652,10 @@ def test_delete_products_trigger_webhook(
     mocked_recalculate_orders_task.assert_not_called()
 
 
-@patch("saleor.plugins.webhook.plugin.get_webhooks_for_event")
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.plugins.webhook.plugin.trigger_webhooks_async")
 def test_delete_products_without_variants(
     mocked_webhook_trigger,
@@ -679,7 +742,9 @@ def test_delete_products_with_file_attributes(
         product_type = product.product_type
         product_type.product_attributes.add(file_attribute)
         existing_value = values[i]
-        associate_attribute_values_to_instance(product, file_attribute, existing_value)
+        associate_attribute_values_to_instance(
+            product, {file_attribute.pk: [existing_value]}
+        )
 
     variables = {
         "ids": [
@@ -851,7 +916,9 @@ def test_delete_product_types_with_file_attributes(
         product.product_type = product_type
         product.save()
         existing_value = values[i]
-        associate_attribute_values_to_instance(product, file_attribute, existing_value)
+        associate_attribute_values_to_instance(
+            product, {file_attribute.pk: [existing_value]}
+        )
 
     variables = {
         "ids": [
@@ -873,6 +940,119 @@ def test_delete_product_types_with_file_attributes(
             value.refresh_from_db()
 
 
+PRODUCT_VARIANT_BULK_DELETE_BY_SKU_MUTATION = """
+mutation productVariantBulkDelete($skus: [String!]!) {
+    productVariantBulkDelete(skus: $skus) {
+        count
+        errors {
+            code
+            field
+        }
+    }
+}
+"""
+
+
+@patch(
+    "saleor.graphql.product.bulk_mutations.product_variant_bulk_delete.get_webhooks_for_event"
+)
+@patch("saleor.plugins.manager.PluginsManager.product_variant_deleted")
+@patch("saleor.order.tasks.recalculate_orders_task.delay")
+def test_delete_product_variants_by_sku(
+    mocked_recalculate_orders_task,
+    product_variant_deleted_webhook_mock,
+    mocked_get_webhooks_for_event,
+    staff_api_client,
+    product_variant_list,
+    permission_manage_products,
+    any_webhook,
+    settings,
+):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
+    product = product_variant_list[0].product
+
+    variant = product.variants.get(sku="123")
+    variant.sku = "abcd"
+    variant.save(update_fields=["sku"])
+
+    assert ProductVariantChannelListing.objects.filter(
+        variant_id__in=[variant.id for variant in product_variant_list]
+    ).exists()
+
+    variables = {"skus": [variant.sku for variant in product_variant_list]}
+
+    # when
+    response = staff_api_client.post_graphql(
+        PRODUCT_VARIANT_BULK_DELETE_BY_SKU_MUTATION,
+        variables,
+        permissions=[permission_manage_products],
+    )
+    content = get_graphql_content(response)
+    flush_post_commit_hooks()
+
+    # then
+    assert content["data"]["productVariantBulkDelete"]["count"] == 4
+    assert not ProductVariant.objects.filter(
+        id__in=[variant.id for variant in product_variant_list]
+    ).exists()
+    assert (
+        product_variant_deleted_webhook_mock.call_count
+        == content["data"]["productVariantBulkDelete"]["count"]
+    )
+    mocked_recalculate_orders_task.assert_not_called()
+
+
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_variant_bulk_delete.get_webhooks_for_event"
+)
+@patch("saleor.plugins.manager.PluginsManager.product_variant_deleted")
+@patch("saleor.order.tasks.recalculate_orders_task.delay")
+def test_delete_product_variants_by_sku_task_for_recalculate_product_prices_called(
+    mocked_recalculate_orders_task,
+    product_variant_deleted_webhook_mock,
+    mocked_get_webhooks_for_event,
+    staff_api_client,
+    product_list,
+    permission_manage_products,
+    any_webhook,
+    settings,
+):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
+    variants = [product.variants.first() for product in product_list]
+    assert ProductVariantChannelListing.objects.filter(
+        variant_id__in=[variant.id for variant in variants]
+    ).exists()
+
+    variables = {"skus": [variant.sku for variant in variants]}
+
+    # when
+    response = staff_api_client.post_graphql(
+        PRODUCT_VARIANT_BULK_DELETE_BY_SKU_MUTATION,
+        variables,
+        permissions=[permission_manage_products],
+    )
+    content = get_graphql_content(response)
+    flush_post_commit_hooks()
+
+    # then
+    assert content["data"]["productVariantBulkDelete"]["count"] == len(variants)
+    assert not ProductVariant.objects.filter(
+        id__in=[variant.id for variant in variants]
+    ).exists()
+    assert (
+        product_variant_deleted_webhook_mock.call_count
+        == content["data"]["productVariantBulkDelete"]["count"]
+    )
+    mocked_recalculate_orders_task.assert_not_called()
+    for rule in get_active_catalogue_promotion_rules():
+        assert rule.variants_dirty
+
+
 PRODUCT_VARIANT_BULK_DELETE_MUTATION = """
 mutation productVariantBulkDelete($ids: [ID!]!) {
     productVariantBulkDelete(ids: $ids) {
@@ -886,15 +1066,25 @@ mutation productVariantBulkDelete($ids: [ID!]!) {
 """
 
 
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_variant_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.plugins.manager.PluginsManager.product_variant_deleted")
 @patch("saleor.order.tasks.recalculate_orders_task.delay")
 def test_delete_product_variants(
     mocked_recalculate_orders_task,
     product_variant_deleted_webhook_mock,
+    mocked_get_webhooks_for_event,
     staff_api_client,
     product_variant_list,
     permission_manage_products,
+    any_webhook,
+    settings,
 ):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
     query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
 
     product = product_variant_list[0].product
@@ -930,8 +1120,63 @@ def test_delete_product_variants(
     mocked_recalculate_orders_task.assert_not_called()
 
 
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_variant_bulk_delete.get_webhooks_for_event"
+)
+@patch("saleor.plugins.manager.PluginsManager.product_variant_deleted")
+@patch("saleor.order.tasks.recalculate_orders_task.delay")
+def test_delete_product_variants_task_for_recalculate_product_prices_called(
+    mocked_recalculate_orders_task,
+    product_variant_deleted_webhook_mock,
+    mocked_get_webhooks_for_event,
+    staff_api_client,
+    product_list,
+    permission_manage_products,
+    any_webhook,
+    settings,
+):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
+    query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
+
+    variants = [product.variants.first() for product in product_list]
+    assert ProductVariantChannelListing.objects.filter(
+        variant_id__in=[variant.id for variant in variants]
+    ).exists()
+
+    variables = {
+        "ids": [
+            graphene.Node.to_global_id("ProductVariant", variant.id)
+            for variant in variants
+        ]
+    }
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_products]
+    )
+    content = get_graphql_content(response)
+    flush_post_commit_hooks()
+
+    assert content["data"]["productVariantBulkDelete"]["count"] == len(variants)
+    assert not ProductVariant.objects.filter(
+        id__in=[variant.id for variant in variants]
+    ).exists()
+    assert (
+        product_variant_deleted_webhook_mock.call_count
+        == content["data"]["productVariantBulkDelete"]["count"]
+    )
+    mocked_recalculate_orders_task.assert_not_called()
+    for rule in get_active_catalogue_promotion_rules():
+        assert rule.variants_dirty
+
+
 def test_delete_product_variants_invalid_object_typed_of_given_ids(
-    staff_api_client, product_variant_list, permission_manage_products, staff_user
+    staff_api_client,
+    product_variant_list,
+    permission_manage_products,
+    staff_user,
+    catalogue_promotion,
 ):
     query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
     staff_user.user_permissions.add(permission_manage_products)
@@ -950,6 +1195,7 @@ def test_delete_product_variants_invalid_object_typed_of_given_ids(
     assert errors[0]["code"] == ProductErrorCode.GRAPHQL_ERROR.name
     assert errors[0]["field"] == "ids"
     assert data["count"] == 0
+    assert not catalogue_promotion.rules.filter(variants_dirty=True).exists()
 
 
 def test_delete_product_variants_removes_checkout_lines(
@@ -960,7 +1206,9 @@ def test_delete_product_variants_removes_checkout_lines(
 ):
     query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
 
-    checkout_info = fetch_checkout_info(checkout, [], [], get_plugins_manager())
+    checkout_info = fetch_checkout_info(
+        checkout, [], get_plugins_manager(allow_replica=False)
+    )
     variant_list = [product.variants.first() for product in product_list][:2]
     for variant in variant_list:
         add_variant_to_checkout(checkout_info, variant, 1)
@@ -996,6 +1244,10 @@ def test_delete_product_variants_removes_checkout_lines(
     assert old_quantity == calculate_checkout_quantity(lines) + 2
 
 
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_variant_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.product.signals.delete_from_storage_task")
 @patch("saleor.plugins.manager.PluginsManager.product_variant_deleted")
 @patch("saleor.order.tasks.recalculate_orders_task.delay")
@@ -1003,12 +1255,18 @@ def test_delete_product_variants_with_images(
     mocked_recalculate_orders_task,
     product_variant_deleted_webhook_mock,
     delete_from_storage_task_mock,
+    mocked_get_webhooks_for_event,
     staff_api_client,
     product_variant_list,
     image_list,
     permission_manage_products,
     media_root,
+    any_webhook,
+    settings,
 ):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
     query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
 
     assert ProductVariantChannelListing.objects.filter(
@@ -1070,7 +1328,7 @@ def test_product_delete_removes_reference_to_product(
         reference_product=product_ref,
     )
     associate_attribute_values_to_instance(
-        product, product_type_product_reference_attribute, attr_value
+        product, {product_type_product_reference_attribute.id: [attr_value]}
     )
 
     reference_id = graphene.Node.to_global_id("Product", product_ref.pk)
@@ -1091,7 +1349,7 @@ def test_product_delete_removes_reference_to_product(
     assert not data["errors"]
 
 
-def test_product_delete_removes_reference_to_product_variant(
+def test_product_delete_removes_variant_reference_to_product(
     staff_api_client,
     variant,
     product_type_product_reference_attribute,
@@ -1110,9 +1368,7 @@ def test_product_delete_removes_reference_to_product_variant(
     )
 
     associate_attribute_values_to_instance(
-        variant,
-        product_type_product_reference_attribute,
-        attr_value,
+        variant, {product_type_product_reference_attribute.id: [attr_value]}
     )
     reference_id = graphene.Node.to_global_id("Product", product_list[0].pk)
 
@@ -1128,6 +1384,51 @@ def test_product_delete_removes_reference_to_product_variant(
         attr_value.refresh_from_db()
     with pytest.raises(product_list[0]._meta.model.DoesNotExist):
         product_list[0].refresh_from_db()
+
+    assert not data["errors"]
+
+
+def test_product_delete_removes_reference_to_variant(
+    staff_api_client,
+    product_type_variant_reference_attribute,
+    product_list,
+    product_type,
+    permission_manage_products,
+):
+    # given
+    query = DELETE_PRODUCTS_MUTATION
+
+    product = product_list[0]
+    variant_ref = product_list[1].variants.first()
+
+    product_type.product_attributes.add(product_type_variant_reference_attribute)
+    attr_value = AttributeValue.objects.create(
+        attribute=product_type_variant_reference_attribute,
+        name=variant_ref.name,
+        slug=f"{product.pk}_{variant_ref.pk}",
+        reference_variant=variant_ref,
+    )
+    associate_attribute_values_to_instance(
+        product, {product_type_variant_reference_attribute.id: [attr_value]}
+    )
+
+    product_id = graphene.Node.to_global_id("Product", product.pk)
+
+    variables = {"ids": [product_id]}
+
+    # when
+    response = staff_api_client.post_graphql(
+        query, variables, permissions=[permission_manage_products]
+    )
+
+    # then
+    content = get_graphql_content(response)
+    data = content["data"]["productBulkDelete"]
+
+    with pytest.raises(attr_value._meta.model.DoesNotExist):
+        attr_value.refresh_from_db()
+    with pytest.raises(product._meta.model.DoesNotExist):
+        product.refresh_from_db()
 
     assert not data["errors"]
 
@@ -1151,7 +1452,7 @@ def test_product_delete_removes_reference_to_page(
         reference_product=product,
     )
     associate_attribute_values_to_instance(
-        page, page_type_product_reference_attribute, attr_value
+        page, {page_type_product_reference_attribute.id: [attr_value]}
     )
 
     reference_id = graphene.Node.to_global_id("Product", product.pk)
@@ -1172,16 +1473,26 @@ def test_product_delete_removes_reference_to_page(
     assert not data["errors"]
 
 
+@patch(
+    "saleor.graphql.product.bulk_mutations."
+    "product_variant_bulk_delete.get_webhooks_for_event"
+)
 @patch("saleor.plugins.manager.PluginsManager.product_variant_deleted")
 @patch("saleor.order.tasks.recalculate_orders_task.delay")
 def test_delete_product_variants_with_file_attribute(
     mocked_recalculate_orders_task,
     product_variant_deleted_webhook_mock,
+    mocked_get_webhooks_for_event,
     staff_api_client,
     product_variant_list,
     permission_manage_products,
     file_attribute,
+    any_webhook,
+    settings,
 ):
+    # given
+    mocked_get_webhooks_for_event.return_value = [any_webhook]
+    settings.PLUGINS = ["saleor.plugins.webhook.plugin.WebhookPlugin"]
     query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
 
     assert ProductVariantChannelListing.objects.filter(
@@ -1193,7 +1504,9 @@ def test_delete_product_variants_with_file_attribute(
         product_type = variant.product.product_type
         product_type.variant_attributes.add(file_attribute)
         existing_value = values[i]
-        associate_attribute_values_to_instance(variant, file_attribute, existing_value)
+        associate_attribute_values_to_instance(
+            variant, {file_attribute.id: [existing_value]}
+        )
 
     variables = {
         "ids": [
@@ -1244,9 +1557,7 @@ def test_delete_product_variants_in_draft_orders(
     second_variant_channel_listing = second_variant_in_draft.channel_listings.get(
         channel=channel_USD
     )
-    net = second_variant_in_draft.get_price(
-        second_product, [], channel_USD, second_variant_channel_listing, None
-    )
+    net = second_variant_in_draft.get_price(second_variant_channel_listing)
     gross = Money(amount=net.amount, currency=net.currency)
     unit_price = TaxedMoney(net=net, gross=gross)
     quantity = 3
@@ -1268,7 +1579,7 @@ def test_delete_product_variants_in_draft_orders(
     variant = variants[0]
     product = variant.product
     variant_channel_listing = variant.channel_listings.get(channel=channel_USD)
-    net = variant.get_price(product, [], channel_USD, variant_channel_listing, None)
+    net = variant.get_price(variant_channel_listing)
     gross = Money(amount=net.amount, currency=net.currency)
     unit_price = TaxedMoney(net=net, gross=gross)
     quantity = 3
@@ -1499,10 +1810,7 @@ def test_delete_variants_delete_product_channel_listing_without_available_channe
     product_with_two_variants,
     permission_manage_products,
 ):
-    """Ensure that when the last available variant for channel is removed,
-    the corresponging product channel listings will be removed too, and when
-    any available variant for channel exist the product channel listing will
-    be not removed."""
+    """Test that a channel listing is removed when the last listed variant is removed."""
     # given
     query = PRODUCT_VARIANT_BULK_DELETE_MUTATION
 

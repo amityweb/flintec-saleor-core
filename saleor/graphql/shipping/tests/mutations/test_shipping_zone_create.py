@@ -153,22 +153,28 @@ def test_create_shipping_zone_trigger_webhook(
         [any_webhook],
         shipping_zone,
         SimpleLazyObject(lambda: staff_api_client.user),
+        allow_replica=False,
     )
 
 
 def test_create_shipping_zone_with_empty_warehouses(
     staff_api_client, permission_manage_shipping
 ):
+    # given
     variables = {
         "name": "test shipping",
         "countries": ["PL"],
         "addWarehouses": [],
     }
+
+    # when
     response = staff_api_client.post_graphql(
         CREATE_SHIPPING_ZONE_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingZoneCreate"]
     assert not data["errors"]
@@ -182,15 +188,20 @@ def test_create_shipping_zone_with_empty_warehouses(
 def test_create_shipping_zone_without_warehouses_and_channels(
     staff_api_client, permission_manage_shipping
 ):
+    # given
     variables = {
         "name": "test shipping",
         "countries": ["PL"],
     }
+
+    # when
     response = staff_api_client.post_graphql(
         CREATE_SHIPPING_ZONE_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingZoneCreate"]
     assert not data["errors"]
@@ -205,12 +216,13 @@ TEST_COUNTRIES_LIST = ["DZ", "AX", "BY"]
 
 
 @mock.patch(
-    "saleor.graphql.shipping.mutations.shippings.get_countries_without_shipping_zone",
+    "saleor.graphql.shipping.mutations.base.get_countries_without_shipping_zone",
     return_value=TEST_COUNTRIES_LIST,
 )
 def test_create_default_shipping_zone(
     _, staff_api_client, warehouse, permission_manage_shipping, channel_PLN
 ):
+    # given
     unassigned_countries = TEST_COUNTRIES_LIST
     warehouse.channels.add(channel_PLN)
     warehouse_id = graphene.Node.to_global_id("Warehouse", warehouse.pk)
@@ -222,11 +234,15 @@ def test_create_default_shipping_zone(
         "addChannels": [channel_id],
         "addWarehouses": [warehouse_id],
     }
+
+    # when
     response = staff_api_client.post_graphql(
         CREATE_SHIPPING_ZONE_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     expected_countries = set(unassigned_countries + variables["countries"])
     content = get_graphql_content(response)
     data = content["data"]["shippingZoneCreate"]
@@ -242,6 +258,7 @@ def test_create_default_shipping_zone(
 def test_create_duplicated_default_shipping_zone(
     staff_api_client, shipping_zone, permission_manage_shipping
 ):
+    # given
     shipping_zone.default = True
     shipping_zone.save()
 
@@ -251,11 +268,15 @@ def test_create_duplicated_default_shipping_zone(
         "countries": ["PL"],
         "addChannels": [],
     }
+
+    # when
     response = staff_api_client.post_graphql(
         CREATE_SHIPPING_ZONE_MUTATION,
         variables,
         permissions=[permission_manage_shipping],
     )
+
+    # then
     content = get_graphql_content(response)
     data = content["data"]["shippingZoneCreate"]
     assert data["errors"]
@@ -297,8 +318,7 @@ def test_create_shipping_zone_invalid_warehouses_no_channels_assigned(
 def test_create_shipping_zone_invalid_warehouses(
     staff_api_client, warehouses, permission_manage_shipping, channel_PLN, channel_USD
 ):
-    """Ensure an error is raised when warehouses without common channel
-    with the shipping zone are added."""
+    """Test that a warehouses cannot be added to a shipping zone with no shared channels."""
     # given
     warehouse_ids = [
         graphene.Node.to_global_id("Warehouse", warehouse.pk)

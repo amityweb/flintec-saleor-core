@@ -1,7 +1,7 @@
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Union
 
+from django.conf import settings
 from django.db import models
-from django.utils.translation import get_language
 
 
 class TranslationWrapper:
@@ -27,27 +27,27 @@ class TranslationWrapper:
         return str(instance)
 
 
-class TranslationProxy:
-    def __get__(self, instance, owner):
-        locale = get_language()
-        return TranslationWrapper(instance, locale)
-
-
 class Translation(models.Model):
     language_code = models.CharField(max_length=35)
 
     class Meta:
         abstract = True
 
-    def get_translated_object_id(self) -> Tuple[str, Union[int, str]]:
+    def get_translated_object_id(self) -> tuple[str, Union[int, str]]:
         raise NotImplementedError(
             "Models extending Translation should implement get_translated_object_id"
         )
 
-    def get_translated_keys(self) -> Dict[str, Any]:
+    def get_translated_keys(self) -> dict[str, Any]:
         raise NotImplementedError(
             "Models extending Translation should implement get_translated_keys"
         )
 
-    def get_translation_context(self) -> Dict[str, Any]:
+    def get_translation_context(self) -> dict[str, Any]:
         return {}
+
+
+def get_translation(instance, language_code=None) -> TranslationWrapper:
+    if not language_code:
+        language_code = settings.LANGUAGE_CODE
+    return TranslationWrapper(instance, language_code)

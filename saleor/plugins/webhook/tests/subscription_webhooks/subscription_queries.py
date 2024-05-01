@@ -1,4 +1,167 @@
+from enum import Enum
+
+from graphene.utils.str_converters import to_snake_case
+
 from .....graphql.tests.queries import fragments
+from .....graphql.webhook.subscription_types import TRANSLATIONS_TYPES_MAP
+
+ACCOUNT_CONFIRMATION_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountConfirmationRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+ACCOUNT_CONFIRMED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountConfirmed{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+ACCOUNT_CHANGE_EMAIL_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountChangeEmailRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+          newEmail
+        }
+      }
+    }
+"""
+)
+
+
+ACCOUNT_EMAIL_CHANGED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountEmailChanged{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+ACCOUNT_DELETE_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountDeleteRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+ACCOUNT_SET_PASSWORD_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountSetPasswordRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+ACCOUNT_DELETED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on AccountDeleted{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
 
 ADDRESS_CREATED = (
     fragments.ADDRESS_DETAILS
@@ -46,7 +209,6 @@ ADDRESS_DELETED = (
     }
 """
 )
-
 
 APP_INSTALLED = (
     fragments.APP_DETAILS
@@ -254,6 +416,24 @@ GIFT_CARD_DELETED = (
 )
 
 
+GIFT_CARD_SENT = (
+    fragments.GIFT_CARD_DETAILS
+    + """
+    subscription{
+      event{
+        ...on GiftCardSent {
+          giftCard{
+            ...GiftCardDetails
+          }
+          channel
+          sentToEmail
+        }
+      }
+    }
+"""
+)
+
+
 GIFT_CARD_STATUS_CHANGED = (
     fragments.GIFT_CARD_DETAILS
     + """
@@ -269,6 +449,35 @@ GIFT_CARD_STATUS_CHANGED = (
 """
 )
 
+GIFT_CARD_METADATA_UPDATED = (
+    fragments.GIFT_CARD_DETAILS
+    + """
+    subscription{
+      event{
+        ...on GiftCardMetadataUpdated{
+          giftCard{
+            ...GiftCardDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+GIFT_CARD_EXPORT_COMPLETED = (
+    fragments.GIFT_CARD_EXPORT_DETAILS
+    + """
+    subscription{
+      event{
+        ...on GiftCardExportCompleted{
+          export{
+            ...GiftCardExportDetails
+          }
+        }
+      }
+    }
+"""
+)
 
 VOUCHER_CREATED = (
     fragments.VOUCHER_DETAILS
@@ -349,6 +558,83 @@ VOUCHER_DELETED = (
     }
 """
 )
+
+
+VOUCHER_CODES_CREATED = (
+    fragments.VOUCHER_CODE_DETAILS
+    + """
+    subscription{
+      event{
+        ...on VoucherCodesCreated{
+          voucherCodes{
+            ...VoucherCodeDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+VOUCHER_CODES_DELETED = (
+    fragments.VOUCHER_CODE_DETAILS
+    + """
+    subscription{
+      event{
+        ...on VoucherCodesDeleted{
+          voucherCodes{
+            ...VoucherCodeDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+VOUCHER_METADATA_UPDATED = (
+    fragments.VOUCHER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on VoucherMetadataUpdated{
+          voucher{
+            ...VoucherDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+VOUCHER_CODE_EXPORT_COMPLETED = (
+    fragments.VOUCHER_CODE_EXPORT_DETAILS
+    + """
+    subscription{
+      event{
+        ...on VoucherCodeExportCompleted{
+          export{
+            ...VoucherCodeExportDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+SHOP_METADATA_UPDATED = """
+    subscription{
+      event {
+        ...on ShopMetadataUpdated{
+          shop {
+            id
+          }
+        }
+      }
+    }
+"""
 
 
 CHANNEL_CREATED = """
@@ -546,6 +832,25 @@ SHIPPING_ZONE_DELETED = """
     }
 """
 
+SHIPPING_ZONE_METADATA_UPDATED = """
+    subscription{
+      event{
+        ...on ShippingZoneMetadataUpdated{
+          shippingZone{
+            id
+            name
+            countries {
+                code
+            }
+            channels {
+                name
+            }
+          }
+        }
+      }
+    }
+"""
+
 STAFF_CREATED = (
     fragments.STAFF_DETAILS
     + """
@@ -593,6 +898,34 @@ STAFF_DELETED = (
 )
 
 
+STAFF_SET_PASSWORD_REQUESTED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on StaffSetPasswordRequested{
+          user{
+            ...CustomerDetails
+          }
+          token
+          redirectUrl
+          channel{
+            slug
+            id
+          }
+          shop{
+            domain{
+                host
+                url
+            }
+          }
+        }
+      }
+    }
+"""
+)
+
+
 PRODUCT_UPDATED = """
     subscription{
       event{
@@ -623,6 +956,75 @@ PRODUCT_DELETED = """
         ...on ProductDeleted{
           product{
             id
+          }
+        }
+      }
+    }
+"""
+
+PRODUCT_METADATA_UPDATED = """
+    subscription{
+      event{
+        ...on ProductMetadataUpdated{
+          product{
+            id
+          }
+        }
+      }
+    }
+"""
+
+PRODUCT_EXPORT_COMPLETED = (
+    fragments.PRODUCT_EXPORT_DETAILS
+    + """
+    subscription{
+      event{
+        ...on ProductExportCompleted{
+          export{
+            ...ProductExportDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+PRODUCT_MEDIA_CREATED = """
+    subscription{
+      event{
+        ...on ProductMediaCreated{
+          productMedia{
+            id
+            url(size: 0)
+            productId
+          }
+        }
+      }
+    }
+"""
+
+PRODUCT_MEDIA_UPDATED = """
+    subscription{
+      event{
+        ...on ProductMediaUpdated{
+          productMedia{
+            id
+            url(size: 0)
+            productId
+          }
+        }
+      }
+    }
+"""
+
+PRODUCT_MEDIA_DELETED = """
+    subscription{
+      event{
+        ...on ProductMediaDeleted{
+          productMedia{
+            id
+            url(size: 0)
+            productId
           }
         }
       }
@@ -666,6 +1068,18 @@ PRODUCT_VARIANT_DELETED = """
     }
 """
 
+PRODUCT_VARIANT_METADATA_UPDATED = """
+    subscription{
+      event{
+        ...on ProductVariantMetadataUpdated{
+          productVariant{
+            id
+          }
+        }
+      }
+    }
+"""
+
 PRODUCT_VARIANT_OUT_OF_STOCK = """
     subscription{
       event{
@@ -683,6 +1097,21 @@ PRODUCT_VARIANT_BACK_IN_STOCK = """
       event{
         ...on ProductVariantBackInStock{
           productVariant{
+            id
+          }
+        }
+      }
+    }
+"""
+
+PRODUCT_VARIANT_STOCK_UPDATED = """
+    subscription{
+      event{
+        ...on ProductVariantStockUpdated{
+          productVariant{
+            id
+          }
+          warehouse{
             id
           }
         }
@@ -738,6 +1167,42 @@ ORDER_FULLY_PAID = """
     }
 """
 
+ORDER_PAID = """
+    subscription{
+      event{
+        ...on OrderPaid{
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+
+ORDER_FULLY_REFUNDED = """
+    subscription{
+      event{
+        ...on OrderFullyRefunded{
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+
+ORDER_REFUNDED = """
+    subscription{
+      event{
+        ...on OrderRefunded{
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+
 ORDER_CANCELLED = """
     subscription{
       event{
@@ -750,11 +1215,49 @@ ORDER_CANCELLED = """
     }
 """
 
+
+ORDER_EXPIRED = """
+    subscription{
+      event{
+        ...on OrderExpired{
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+
+
 ORDER_FULFILLED = """
     subscription{
       event{
         ...on OrderFulfilled{
           order{
+            id
+          }
+        }
+      }
+    }
+"""
+
+ORDER_METADATA_UPDATED = """
+    subscription{
+      event{
+        ...on OrderMetadataUpdated{
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+
+ORDER_BULK_CREATED = """
+    subscription{
+      event{
+        ...on OrderBulkCreated{
+          orders{
             id
           }
         }
@@ -859,14 +1362,143 @@ SALE_TOGGLE = (
 """
 )
 
+
+PROMOTION_CREATED = (
+    fragments.PROMOTION_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionCreated{
+          promotion{
+            ...PromotionDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+PROMOTION_UPDATED = (
+    fragments.PROMOTION_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionUpdated{
+          promotion{
+            ...PromotionDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+PROMOTION_DELETED = (
+    fragments.PROMOTION_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionDeleted{
+          promotion{
+            ...PromotionDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+PROMOTION_STARTED = (
+    fragments.PROMOTION_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionStarted{
+          promotion{
+            ...PromotionDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+PROMOTION_ENDED = (
+    fragments.PROMOTION_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionEnded{
+          promotion{
+            ...PromotionDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+PROMOTION_RULE_CREATED = (
+    fragments.PROMOTION_RULE_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionRuleCreated{
+          promotionRule{
+            ...PromotionRuleDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+PROMOTION_RULE_UPDATED = (
+    fragments.PROMOTION_RULE_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionRuleUpdated{
+          promotionRule{
+            ...PromotionRuleDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+PROMOTION_RULE_DELETED = (
+    fragments.PROMOTION_RULE_DETAILS
+    + """
+    subscription{
+      event{
+        ...on PromotionRuleDeleted{
+          promotionRule{
+            ...PromotionRuleDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
 INVOICE_REQUESTED = (
     fragments.INVOICE_DETAILS
+    + fragments.INVOICE_ORDER_DETAILS
     + """
     subscription{
       event{
         ...on InvoiceRequested{
           invoice{
             ...InvoiceDetails
+          }
+          order {
+            ...InvoiceOrderDetails
           }
         }
       }
@@ -876,12 +1508,16 @@ INVOICE_REQUESTED = (
 
 INVOICE_DELETED = (
     fragments.INVOICE_DETAILS
+    + fragments.INVOICE_ORDER_DETAILS
     + """
     subscription{
       event{
         ...on InvoiceDeleted{
           invoice{
             ...InvoiceDetails
+          }
+          order {
+            ...InvoiceOrderDetails
           }
         }
       }
@@ -891,12 +1527,16 @@ INVOICE_DELETED = (
 
 INVOICE_SENT = (
     fragments.INVOICE_DETAILS
+    + fragments.INVOICE_ORDER_DETAILS
     + """
     subscription{
       event{
         ...on InvoiceSent{
           invoice{
             ...InvoiceDetails
+          }
+          order {
+            ...InvoiceOrderDetails
           }
         }
       }
@@ -910,6 +1550,7 @@ FULFILLMENT_CREATED = (
     subscription{
       event{
         ...on FulfillmentCreated{
+          notifyCustomer
           fulfillment{
             ...FulfillmentDetails
           }
@@ -940,12 +1581,20 @@ FULFILLMENT_CANCELED = (
 """
 )
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 FULFILLMENT_APPROVED = (
     fragments.FULFILLMENT_DETAILS
     + """
     subscription{
       event{
         ...on FulfillmentApproved{
+<<<<<<< HEAD
+=======
+          notifyCustomer
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
           fulfillment{
             ...FulfillmentDetails
           }
@@ -958,6 +1607,47 @@ FULFILLMENT_APPROVED = (
 """
 )
 
+<<<<<<< HEAD
+=======
+
+FULFILLMENT_METADATA_UPDATED = (
+    fragments.FULFILLMENT_DETAILS
+    + """
+    subscription{
+      event{
+        ...on FulfillmentMetadataUpdated{
+          fulfillment{
+            ...FulfillmentDetails
+          }
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+)
+
+FULFILLMENT_TRACKING_NUMBER_UPDATED = (
+    fragments.FULFILLMENT_DETAILS
+    + """
+    subscription{
+      event{
+        ...on FulfillmentTrackingNumberUpdated{
+          fulfillment{
+            ...FulfillmentDetails
+          }
+          order{
+            id
+          }
+        }
+      }
+    }
+"""
+)
+
+
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 CUSTOMER_CREATED = (
     fragments.CUSTOMER_DETAILS
     + """
@@ -995,6 +1685,22 @@ CUSTOMER_DELETED = (
     subscription{
       event{
         ...on CustomerDeleted{
+          user{
+            ...CustomerDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+
+CUSTOMER_METADATA_UPDATED = (
+    fragments.CUSTOMER_DETAILS
+    + """
+    subscription{
+      event{
+        ...on CustomerMetadataUpdated{
           user{
             ...CustomerDetails
           }
@@ -1052,6 +1758,22 @@ COLLECTION_DELETED = (
 )
 
 
+COLLECTION_METADATA_UPDATED = (
+    fragments.COLLECTION
+    + """
+    subscription{
+      event{
+        ...on CollectionMetadataUpdated{
+          collection(channel: "main"){
+            ...CollectionDetails
+          }
+        }
+      }
+    }
+    """
+)
+
+
 CHECKOUT_CREATED = """
     subscription{
       event{
@@ -1071,6 +1793,30 @@ CHECKOUT_UPDATED = """
     subscription{
       event{
         ...on CheckoutUpdated{
+          checkout{
+            id
+          }
+        }
+      }
+    }
+"""
+
+CHECKOUT_FULLY_PAID = """
+    subscription{
+      event{
+        ...on CheckoutFullyPaid{
+          checkout{
+            id
+          }
+        }
+      }
+    }
+"""
+
+CHECKOUT_METADATA_UPDATED = """
+    subscription{
+      event{
+        ...on CheckoutMetadataUpdated{
           checkout{
             id
           }
@@ -1216,6 +1962,19 @@ PERMISSION_GROUP_DELETED = (
 )
 
 
+TRANSACTION_ITEM_METADATA_UPDATED = """
+    subscription{
+      event{
+        ...on TransactionItemMetadataUpdated{
+          transaction {
+            id
+          }
+        }
+      }
+    }
+    """
+
+
 MULTIPLE_EVENTS = """
 subscription{
   event{
@@ -1266,6 +2025,7 @@ subscription {
         }
         ... on SaleTranslation {
           id
+          __typename
         }
         ... on VoucherTranslation {
           id
@@ -1276,10 +2036,151 @@ subscription {
         ... on AttributeValueTranslation {
           id
         }
+        ... on PromotionTranslation {
+          id
+          __typename
+        }
+        ... on PromotionRuleTranslation {
+          id
+        }
       }
     }
   }
 }
+"""
+
+TranslationTypes = Enum(
+    "TranslationTypes",
+    {
+        to_snake_case(k.__name__).upper(): k.__name__
+        for k in TRANSLATIONS_TYPES_MAP.keys()
+    },
+)
+
+
+class TranslationQueryType(Enum):
+    CREATED = "TranslationCreated"
+    UPDATED = "TranslationUpdated"
+
+
+def build_translation_query(
+    type: TranslationTypes,
+    query_type: TranslationQueryType,
+    translated_object_id: str,
+) -> str:
+    return (  # noqa: UP031
+        """
+        subscription {
+          event {
+            ... on %s {
+              translation {
+                ... on %s {
+                  id
+                  name
+                  translatableContent {
+                    %s
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+    ) % (query_type.value, type.value, translated_object_id)
+
+
+TRANSLATION_CREATED_PRODUCT = build_translation_query(
+    TranslationTypes.PRODUCT_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "productId",
+)
+TRANSLATION_CREATED_PRODUCT_VARIANT = build_translation_query(
+    TranslationTypes.PRODUCT_VARIANT_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "productVariantId",
+)
+TRANSLATION_CREATED_COLLECTION = build_translation_query(
+    TranslationTypes.COLLECTION_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "collectionId",
+)
+TRANSLATION_CREATED_CATEGORY = build_translation_query(
+    TranslationTypes.CATEGORY_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "categoryId",
+)
+TRANSLATION_CREATED_ATTRIBUTE = build_translation_query(
+    TranslationTypes.ATTRIBUTE_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "attributeId",
+)
+TRANSLATION_CREATED_ATTRIBUTE_VALUE = build_translation_query(
+    TranslationTypes.ATTRIBUTE_VALUE_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "attributeValueId",
+)
+TRANSLATION_CREATED_SHIPPING_METHOD = build_translation_query(
+    TranslationTypes.SHIPPING_METHOD_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "shippingMethodId",
+)
+TRANSLATION_CREATED_PROMOTION = build_translation_query(
+    TranslationTypes.PROMOTION_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "promotionId",
+)
+TRANSLATION_CREATED_PROMOTION_RULE = build_translation_query(
+    TranslationTypes.PROMOTION_RULE_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "promotionRuleId",
+)
+TRANSLATION_CREATED_VOUCHER = build_translation_query(
+    TranslationTypes.VOUCHER_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "voucherId",
+)
+TRANSLATION_CREATED_MENU_ITEM = build_translation_query(
+    TranslationTypes.MENU_ITEM_TRANSLATION,
+    TranslationQueryType.CREATED,
+    "menuItemId",
+)
+TRANSLATION_CREATED_PAGE = """
+    subscription {
+      event {
+        ... on TranslationCreated {
+          translation {
+            ... on PageTranslation {
+              id
+              title
+              translatableContent {
+                pageId
+                title
+              }
+            }
+          }
+        }
+      }
+    }
+"""
+TRANSLATION_CREATED_SALE = """
+    subscription {
+      event {
+        ... on TranslationCreated {
+          translation {
+            ... on SaleTranslation {
+              __typename
+              id
+              name
+              translatableContent {
+                saleId
+                name
+              }
+            }
+          }
+        }
+      }
+    }
 """
 
 TRANSLATION_UPDATED = """
@@ -1310,6 +2211,7 @@ subscription {
         }
         ... on SaleTranslation {
           id
+          __typename
         }
         ... on VoucherTranslation {
           id
@@ -1320,10 +2222,91 @@ subscription {
         ... on AttributeValueTranslation {
           id
         }
+        ... on PromotionTranslation {
+          id
+          __typename
+        }
+        ... on PromotionRuleTranslation {
+          id
+        }
       }
     }
   }
 }
+"""
+
+TRANSLATION_UPDATED_PRODUCT = build_translation_query(
+    TranslationTypes.PRODUCT_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "productId",
+)
+TRANSLATION_UPDATED_PRODUCT_VARIANT = build_translation_query(
+    TranslationTypes.PRODUCT_VARIANT_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "productVariantId",
+)
+TRANSLATION_UPDATED_COLLECTION = build_translation_query(
+    TranslationTypes.COLLECTION_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "collectionId",
+)
+TRANSLATION_UPDATED_CATEGORY = build_translation_query(
+    TranslationTypes.CATEGORY_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "categoryId",
+)
+TRANSLATION_UPDATED_ATTRIBUTE = build_translation_query(
+    TranslationTypes.ATTRIBUTE_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "attributeId",
+)
+TRANSLATION_UPDATED_ATTRIBUTE_VALUE = build_translation_query(
+    TranslationTypes.ATTRIBUTE_VALUE_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "attributeValueId",
+)
+TRANSLATION_UPDATED_SHIPPING_METHOD = build_translation_query(
+    TranslationTypes.SHIPPING_METHOD_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "shippingMethodId",
+)
+TRANSLATION_UPDATED_PROMOTION = build_translation_query(
+    TranslationTypes.PROMOTION_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "promotionId",
+)
+TRANSLATION_UPDATED_PROMOTION_RULE = build_translation_query(
+    TranslationTypes.PROMOTION_RULE_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "promotionRuleId",
+)
+TRANSLATION_UPDATED_VOUCHER = build_translation_query(
+    TranslationTypes.VOUCHER_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "voucherId",
+)
+TRANSLATION_UPDATED_MENU_ITEM = build_translation_query(
+    TranslationTypes.MENU_ITEM_TRANSLATION,
+    TranslationQueryType.UPDATED,
+    "menuItemId",
+)
+TRANSLATION_UPDATED_PAGE = """
+    subscription {
+      event {
+        ... on TranslationUpdated {
+          translation {
+            ... on PageTranslation {
+              id
+              title
+              translatableContent {
+                pageId
+                title
+              }
+            }
+          }
+        }
+      }
+    }
 """
 
 TEST_VALID_SUBSCRIPTION = """
@@ -1562,6 +2545,21 @@ WAREHOUSE_DELETED = (
     subscription{
       event{
         ...on WarehouseDeleted{
+          warehouse{
+            ...WarehouseDetails
+          }
+        }
+      }
+    }
+"""
+)
+
+WAREHOUSE_METADATA_UPDATED = (
+    fragments.WAREHOUSE_DETAILS
+    + """
+    subscription{
+      event{
+        ...on WarehouseMetadataUpdated{
           warehouse{
             ...WarehouseDetails
           }
@@ -1832,20 +2830,24 @@ INVALID_MULTIPLE_EVENTS_WITH_FRAGMENTS = (
       event{
         ...on ProductUpdated{
           product{
-          variants{
-            ...ProductVariant
-            }
-            ...CategoryDetails
+              variants{
+                ...ProductVariant
+                }
+              category {
+                ...CategoryDetails
+              }
           }
         }
       }
       event{
         ...on ProductCreated{
           product{
-          variants{
+            variants{
                 ...ProductVariant
             }
-            ...CategoryDetails
+            category{
+              ...CategoryDetails
+            }
           }
         }
       }
@@ -1862,13 +2864,68 @@ QUERY_WITH_MULTIPLE_FRAGMENTS = (
       event{
         ...on ProductUpdated{
           product{
-          variants{
-            ...ProductVariant
+            variants{
+              ...ProductVariant
             }
-            ...CategoryDetails
+            category{
+              ...CategoryDetails
+            }
           }
         }
       }
     }
     """
 )
+
+THUMBNAIL_CREATED = """
+    subscription {
+      event {
+        ... on ThumbnailCreated {
+          url
+          id
+          objectId
+          mediaUrl
+        }
+      }
+    }
+"""
+
+
+ORDER_CALCULATE_TAXES = """
+    subscription {
+      event {
+        ... on CalculateTaxes {
+          taxBase {
+            sourceObject {
+              ...on Order{
+                discounts {
+                  amount {
+                    amount
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+"""
+
+CHECKOUT_SHIPPING_LIST_AND_FILTER = """
+    subscription {
+      event {
+        ... on CheckoutFilterShippingMethods {
+          __typename
+          checkout {
+            id
+          }
+        }
+        ... on ShippingListMethodsForCheckout {
+          __typename
+          checkout {
+            id
+          }
+        }
+      }
+    }
+"""

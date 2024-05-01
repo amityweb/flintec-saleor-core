@@ -6,15 +6,18 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from graphql.error import GraphQLError
 
+from ....product.models import Category
 from ..validators import (
+    clean_seo_fields,
     validate_end_is_after_start,
     validate_one_of_args_is_in_query,
     validate_price_precision,
+    validate_slug_and_generate_if_needed,
 )
 
 
 @pytest.mark.parametrize(
-    "value, currency",
+    ("value", "currency"),
     [
         (Decimal("1.1200"), "USD"),
         (Decimal("1.12"), "USD"),
@@ -34,7 +37,7 @@ def test_validate_price_precision(value, currency):
 
 
 @pytest.mark.parametrize(
-    "value, currency",
+    ("value", "currency"),
     [
         (Decimal("1.1212"), "USD"),
         (Decimal("1.128"), "USD"),
@@ -55,6 +58,17 @@ def test_validate_end_is_after_start_raise_error():
     with pytest.raises(ValidationError) as error:
         validate_end_is_after_start(start_date, end_date)
     assert error.value.message == "End date cannot be before the start date."
+
+
+@pytest.mark.parametrize(
+    ("start_date", "end_date"),
+    [
+        (timezone.now() - timedelta(days=365), timezone.now() + timedelta(days=365)),
+        (timezone.now() + timedelta(days=365), None),
+    ],
+)
+def test_validate_end_is_after_start(start_date, end_date):
+    validate_end_is_after_start(start_date, end_date)
 
 
 def test_validate_one_of_args_is_in_query():
@@ -87,3 +101,82 @@ def test_validate_one_of_args_is_in_query_single_arg_absent():
     with pytest.raises(GraphQLError) as error:
         validate_one_of_args_is_in_query("arg1", None) is None
     assert error.value.message == "At least one of arguments is required: 'arg1'."
+
+
+def test_clean_seo_fields():
+    title = "lady title"
+    description = "fantasy description"
+    data = {"seo": {"title": title, "description": description}}
+    clean_seo_fields(data)
+    assert data["seo_title"] == title
+    assert data["seo_description"] == description
+
+
+def test_clean_seo_fields_accepts_null():
+    data = {"seo": None}
+    clean_seo_fields(data)
+    assert not data
+
+
+@pytest.mark.parametrize(
+    "cleaned_input",
+    [
+        {"slug": None, "name": "test"},
+        {"slug": "", "name": "test"},
+        {"slug": ""},
+        {"slug": None},
+    ],
+)
+def test_validate_slug_and_generate_if_needed_raises_errors(category, cleaned_input):
+    with pytest.raises(ValidationError):
+        validate_slug_and_generate_if_needed(category, "name", cleaned_input)
+
+
+@pytest.mark.parametrize(
+    "cleaned_input", [{"slug": "test-slug"}, {"slug": "test-slug", "name": "test"}]
+)
+def test_validate_slug_and_generate_if_needed_not_raises_errors(
+    category, cleaned_input
+):
+    validate_slug_and_generate_if_needed(category, "name", cleaned_input)
+
+
+@pytest.mark.parametrize(
+    "cleaned_input",
+    [
+        {"slug": None, "name": "test"},
+        {"slug": "", "name": "test"},
+    ],
+)
+def test_validate_slug_and_generate_if_needed_generate_slug(cleaned_input):
+    # given
+    category = Category(name="test")
+    previous_slug_value = cleaned_input["slug"]
+
+    # when
+    validate_slug_and_generate_if_needed(category, "name", cleaned_input)
+
+    # then
+    assert previous_slug_value != cleaned_input["slug"]
+    assert cleaned_input["slug"] == cleaned_input["name"]
+
+
+@pytest.mark.parametrize(
+    "cleaned_input",
+    [
+        {"slug": ""},
+        {"slug": None},
+        {"slug": "test-slug"},
+        {"slug": "test-slug", "name": "test"},
+    ],
+)
+def test_validate_slug_and_generate_if_needed_slug_not_changed(cleaned_input):
+    # given
+    category = Category(name="test")
+    previous_slug_value = cleaned_input["slug"]
+
+    # when
+    validate_slug_and_generate_if_needed(category, "name", cleaned_input)
+
+    # then
+    assert cleaned_input["slug"] == previous_slug_value

@@ -1,10 +1,11 @@
 import re
+from typing import Any, Optional
 
 from . import PostalCodeRuleInclusionType
 
 
 def group_values(pattern, *values):
-    result = []
+    result: list[Optional[tuple[Any, ...]]] = []
     for value in values:
         try:
             val = re.match(pattern, value)

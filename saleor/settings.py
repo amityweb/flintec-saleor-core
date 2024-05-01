@@ -1,12 +1,19 @@
 import ast
 import logging
+<<<<<<< HEAD
+=======
+import os
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 import os.path
 import warnings
 from datetime import timedelta
+from typing import Optional
+from urllib.parse import urlparse
 
 import dj_database_url
 import dj_email_url
 import django_cache_url
+import django_stubs_ext
 import jaeger_client.config
 import pkg_resources
 import sentry_sdk
@@ -15,6 +22,7 @@ from celery.schedules import crontab
 from django.conf import global_settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.utils import get_random_secret_key
+from django.core.validators import URLValidator
 from graphql.execution import executor
 from pytimeparse import parse
 from sentry_sdk.integrations.celery import CeleryIntegration
@@ -23,7 +31,10 @@ from sentry_sdk.integrations.logging import ignore_logger
 
 from . import PatchedSubscriberExecutionContext, __version__
 from .core.languages import LANGUAGES as CORE_LANGUAGES
-from .core.schedules import initiated_sale_webhook_schedule
+from .core.schedules import initiated_promotion_webhook_schedule
+from .graphql.executor import patch_executor
+
+django_stubs_ext.monkeypatch()
 
 
 def get_list(text):
@@ -36,8 +47,17 @@ def get_bool_from_env(name, default_value):
         try:
             return ast.literal_eval(value)
         except ValueError as e:
-            raise ValueError("{} is an invalid value for {}".format(value, name)) from e
+            raise ValueError(f"{value} is an invalid value for {name}") from e
     return default_value
+
+
+def get_url_from_env(name, *, schemes=None) -> Optional[str]:
+    if name in os.environ:
+        value = os.environ[name]
+        message = f"{value} is an invalid value for {name}"
+        URLValidator(schemes=schemes, message=message)(value)
+        return value
+    return None
 
 
 DEBUG = get_bool_from_env("DEBUG", True)
@@ -72,22 +92,29 @@ ALLOWED_CLIENT_HOSTS = get_list(ALLOWED_CLIENT_HOSTS)
 
 INTERNAL_IPS = get_list(os.environ.get("INTERNAL_IPS", "127.0.0.1"))
 
+# Maximum time in seconds Django can keep the database connections opened.
+# Set the value to 0 to disable connection persistence, database connections
+# will be closed after each request.
+DB_CONN_MAX_AGE = int(os.environ.get("DB_CONN_MAX_AGE", 600))
+
 DATABASE_CONNECTION_DEFAULT_NAME = "default"
 # TODO: For local envs will be activated in separate PR.
 # We need to update docs an saleor platform.
 # This variable should be set to `replica`
-DATABASE_CONNECTION_REPLICA_NAME = "default"
+DATABASE_CONNECTION_REPLICA_NAME = "replica"
 
 DATABASES = {
     DATABASE_CONNECTION_DEFAULT_NAME: dj_database_url.config(
-        default="postgres://saleor:saleor@localhost:5432/saleor", conn_max_age=600
+        default="postgres://saleor:saleor@localhost:5432/saleor",
+        conn_max_age=DB_CONN_MAX_AGE,
     ),
-    # TODO: We need to add read only user to saleor platfrom, and we need to update
-    # docs.
-    # DATABASE_CONNECTION_REPLICA_NAME: dj_database_url.config(
-    #     default="postgres://saleor_read_only:saleor@localhost:5432/saleor",
-    #     conn_max_age=600,
-    # ),
+    DATABASE_CONNECTION_REPLICA_NAME: dj_database_url.config(
+        default="postgres://saleor:saleor@localhost:5432/saleor",
+        # TODO: We need to add read only user to saleor platform,
+        # and we need to update docs.
+        # default="postgres://saleor_read_only:saleor@localhost:5432/saleor",
+        conn_max_age=DB_CONN_MAX_AGE,
+    ),
 }
 
 DATABASE_ROUTERS = ["saleor.core.db_routers.PrimaryReplicaRouter"]
@@ -108,40 +135,44 @@ EMAIL_URL = os.environ.get("EMAIL_URL")
 SENDGRID_USERNAME = os.environ.get("SENDGRID_USERNAME")
 SENDGRID_PASSWORD = os.environ.get("SENDGRID_PASSWORD")
 if not EMAIL_URL and SENDGRID_USERNAME and SENDGRID_PASSWORD:
-    EMAIL_URL = "smtp://%s:%s@smtp.sendgrid.net:587/?tls=True" % (
-        SENDGRID_USERNAME,
-        SENDGRID_PASSWORD,
+    EMAIL_URL = (
+        f"smtp://{SENDGRID_USERNAME}"
+        f":{SENDGRID_PASSWORD}@smtp.sendgrid.net:587/?tls=True"
     )
-email_config = dj_email_url.parse(
-    EMAIL_URL or "console://demo@example.com:console@example/"
-)
 
-EMAIL_FILE_PATH = email_config["EMAIL_FILE_PATH"]
-EMAIL_HOST_USER = email_config["EMAIL_HOST_USER"]
-EMAIL_HOST_PASSWORD = email_config["EMAIL_HOST_PASSWORD"]
-EMAIL_HOST = email_config["EMAIL_HOST"]
-EMAIL_PORT = email_config["EMAIL_PORT"]
-EMAIL_BACKEND = email_config["EMAIL_BACKEND"]
-EMAIL_USE_TLS = email_config["EMAIL_USE_TLS"]
-EMAIL_USE_SSL = email_config["EMAIL_USE_SSL"]
+email_config = dj_email_url.parse(EMAIL_URL or "")
 
-# If enabled, make sure you have set proper storefront address in ALLOWED_CLIENT_HOSTS.
-ENABLE_ACCOUNT_CONFIRMATION_BY_EMAIL = get_bool_from_env(
-    "ENABLE_ACCOUNT_CONFIRMATION_BY_EMAIL", True
-)
+EMAIL_FILE_PATH: str = email_config.get("EMAIL_FILE_PATH", "")
+EMAIL_HOST_USER: str = email_config.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD: str = email_config.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_HOST: str = email_config.get("EMAIL_HOST", "")
+EMAIL_PORT: str = str(email_config.get("EMAIL_PORT", ""))
+EMAIL_BACKEND: str = email_config.get("EMAIL_BACKEND", "")
+EMAIL_USE_TLS: bool = email_config.get("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL: bool = email_config.get("EMAIL_USE_SSL", False)
 
-ENABLE_SSL = get_bool_from_env("ENABLE_SSL", False)
+ENABLE_SSL: bool = get_bool_from_env("ENABLE_SSL", False)
+
+# URL on which Saleor is hosted (e.g., https://api.example.com/). This has precedence
+# over ENABLE_SSL and Shop.domain when generating URLs pointing to itself.
+PUBLIC_URL: Optional[str] = get_url_from_env("PUBLIC_URL", schemes=["http", "https"])
+if PUBLIC_URL:
+    if os.environ.get("ENABLE_SSL") is not None:
+        warnings.warn("ENABLE_SSL is ignored on URL generation if PUBLIC_URL is set.")
+    ENABLE_SSL = urlparse(PUBLIC_URL).scheme.lower() == "https"
 
 if ENABLE_SSL:
     SECURE_SSL_REDIRECT = not DEBUG
 
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+DEFAULT_FROM_EMAIL: str = os.environ.get(
+    "DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "noreply@example.com"
+)
 
-MEDIA_ROOT = os.path.join(PROJECT_ROOT, "media")
-MEDIA_URL = os.environ.get("MEDIA_URL", "/media/")
+MEDIA_ROOT: str = os.path.join(PROJECT_ROOT, "media")
+MEDIA_URL: str = os.environ.get("MEDIA_URL", "/media/")
 
-STATIC_ROOT = os.path.join(PROJECT_ROOT, "static")
-STATIC_URL = os.environ.get("STATIC_URL", "/static/")
+STATIC_ROOT: str = os.path.join(PROJECT_ROOT, "static")
+STATIC_URL: str = os.environ.get("STATIC_URL", "/static/")
 STATICFILES_DIRS = [
     ("images", os.path.join(PROJECT_ROOT, "saleor", "static", "images"))
 ]
@@ -185,6 +216,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 PASSWORD_HASHERS = [
     *global_settings.PASSWORD_HASHERS,
     "django.contrib.auth.hashers.BCryptPasswordHasher",
+    "saleor.core.hashers.SHA512Base64PBKDF2PasswordHasher",
 ]
 
 if not SECRET_KEY and DEBUG:
@@ -200,13 +232,14 @@ JWT_MANAGER_PATH = os.environ.get(
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "saleor.core.middleware.request_time",
-    "saleor.core.middleware.discounts",
-    "saleor.core.middleware.google_analytics",
-    "saleor.core.middleware.site",
-    "saleor.core.middleware.plugins",
     "saleor.core.middleware.jwt_refresh_token_middleware",
 ]
+
+ENABLE_RESTRICT_WRITER_MIDDLEWARE = get_bool_from_env(
+    "ENABLE_RESTRICT_WRITER_MIDDLEWARE", False
+)
+if ENABLE_RESTRICT_WRITER_MIDDLEWARE:
+    MIDDLEWARE = ["saleor.core.db.connection.log_writer_usage_middleware"] + MIDDLEWARE
 
 INSTALLED_APPS = [
     # External apps that need to go before django's
@@ -215,10 +248,11 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sites",
     "django.contrib.staticfiles",
-    "django.contrib.auth",
     "django.contrib.postgres",
     "django_celery_beat",
     # Local apps
+    "saleor.permission",
+    "saleor.auth",
     "saleor.plugins",
     "saleor.account",
     "saleor.discount",
@@ -238,6 +272,7 @@ INSTALLED_APPS = [
     "saleor.site",
     "saleor.page",
     "saleor.payment",
+    "saleor.tax",
     "saleor.warehouse",
     "saleor.webhook",
     "saleor.app",
@@ -246,8 +281,6 @@ INSTALLED_APPS = [
     # External apps
     "django_measurement",
     "django_prices",
-    "django_prices_openexchangerates",
-    "django_prices_vatlayer",
     "mptt",
     "django_countries",
     "django_filters",
@@ -268,7 +301,7 @@ if ENABLE_DEBUG_TOOLBAR:
     except ImportError as exc:
         msg = (
             f"{exc} -- Install the missing dependencies by "
-            f"running `pip install -r requirements_dev.txt`"
+            f"running `poetry install --no-root`"
         )
         warnings.warn(msg)
     else:
@@ -403,21 +436,6 @@ DEFAULT_MAX_EMAIL_DISPLAY_NAME_LENGTH = 78
 
 COUNTRIES_OVERRIDE = {"EU": "European Union"}
 
-OPENEXCHANGERATES_API_KEY = os.environ.get("OPENEXCHANGERATES_API_KEY")
-
-GOOGLE_ANALYTICS_TRACKING_ID = os.environ.get("GOOGLE_ANALYTICS_TRACKING_ID")
-
-
-def get_host():
-    from django.contrib.sites.models import Site
-
-    return Site.objects.get_current().domain
-
-
-PAYMENT_HOST = get_host
-
-PAYMENT_MODEL = "order.Payment"
-
 MAX_USER_ADDRESSES = int(os.environ.get("MAX_USER_ADDRESSES", 100))
 
 TEST_RUNNER = "saleor.tests.runner.PytestTestRunner"
@@ -426,7 +444,9 @@ TEST_RUNNER = "saleor.tests.runner.PytestTestRunner"
 PLAYGROUND_ENABLED = get_bool_from_env("PLAYGROUND_ENABLED", True)
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1"))
-ALLOWED_GRAPHQL_ORIGINS = get_list(os.environ.get("ALLOWED_GRAPHQL_ORIGINS", "*"))
+ALLOWED_GRAPHQL_ORIGINS: list[str] = get_list(
+    os.environ.get("ALLOWED_GRAPHQL_ORIGINS", "*")
+)
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -447,8 +467,11 @@ AWS_DEFAULT_ACL = os.environ.get("AWS_DEFAULT_ACL", None)
 AWS_S3_FILE_OVERWRITE = get_bool_from_env("AWS_S3_FILE_OVERWRITE", True)
 
 # Google Cloud Storage configuration
+# See https://django-storages.readthedocs.io/en/latest/backends/gcloud.html
 GS_PROJECT_ID = os.environ.get("GS_PROJECT_ID")
 GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME")
+GS_LOCATION = os.environ.get("GS_LOCATION", "")
+GS_CUSTOM_ENDPOINT = os.environ.get("GS_CUSTOM_ENDPOINT")
 GS_MEDIA_BUCKET_NAME = os.environ.get("GS_MEDIA_BUCKET_NAME")
 GS_AUTO_CREATE_BUCKET = get_bool_from_env("GS_AUTO_CREATE_BUCKET", False)
 GS_QUERYSTRING_AUTH = get_bool_from_env("GS_QUERYSTRING_AUTH", False)
@@ -533,6 +556,29 @@ CELERY_TASK_ROUTES = {
     },
 }
 
+# Expire orders task setting
+BEAT_EXPIRE_ORDERS_AFTER_TIMEDELTA = timedelta(
+    seconds=parse(os.environ.get("BEAT_EXPIRE_ORDERS_AFTER_TIMEDELTA", "5 minutes"))
+)
+
+# Defines after how many seconds should the task triggered by the Celery beat
+# entry 'update-products-search-vectors' expire if it wasn't picked up by a worker.
+BEAT_UPDATE_SEARCH_SEC = parse(
+    os.environ.get("BEAT_UPDATE_SEARCH_FREQUENCY", "20 seconds")
+)
+BEAT_UPDATE_SEARCH_EXPIRE_AFTER_SEC = BEAT_UPDATE_SEARCH_SEC
+
+BEAT_PRICE_RECALCULATION_SCHEDULE = parse(
+    os.environ.get("BEAT_PRICE_RECALCULATION_SCHEDULE", "30 seconds")
+)
+BEAT_PRICE_RECALCULATION_SCHEDULE_EXPIRE_AFTER_SEC = BEAT_PRICE_RECALCULATION_SCHEDULE
+
+# Defines the Celery beat scheduler entries.
+#
+# Note: if a Celery task triggered by a Celery beat entry has an expiration
+# @task(expires=...), the Celery beat scheduler entry should also define
+# the expiration value. This makes sure if the task or scheduling is wrapped
+# by custom code (e.g., a Saleor fork), the expiration is still present.
 CELERY_BEAT_SCHEDULE = {
     "delete-empty-allocations": {
         "task": "saleor.warehouse.tasks.delete_empty_allocations_task",
@@ -550,6 +596,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "saleor.checkout.tasks.delete_expired_checkouts",
         "schedule": crontab(hour=0, minute=0),
     },
+    "delete_expired_orders": {
+        "task": "saleor.order.tasks.delete_expired_orders_task",
+        "schedule": crontab(hour=2, minute=0),
+    },
     "delete-outdated-event-data": {
         "task": "saleor.core.tasks.delete_event_payloads_task",
         "schedule": timedelta(days=1),
@@ -566,13 +616,44 @@ CELERY_BEAT_SCHEDULE = {
         "task": "saleor.csv.tasks.delete_old_export_files",
         "schedule": crontab(hour=1, minute=0),
     },
-    "send-sale-toggle-notifications": {
-        "task": "saleor.discount.tasks.send_sale_toggle_notifications",
-        "schedule": initiated_sale_webhook_schedule,
+    "handle-promotion-toggle": {
+        "task": "saleor.discount.tasks.handle_promotion_toggle",
+        "schedule": initiated_promotion_webhook_schedule,
     },
     "update-products-search-vectors": {
         "task": "saleor.product.tasks.update_products_search_vector_task",
-        "schedule": timedelta(seconds=20),
+        "schedule": timedelta(seconds=BEAT_UPDATE_SEARCH_SEC),
+        "options": {"expires": BEAT_UPDATE_SEARCH_EXPIRE_AFTER_SEC},
+    },
+    "update-gift-cards-search-vectors": {
+        "task": "saleor.giftcard.tasks.update_gift_cards_search_vector_task",
+        "schedule": timedelta(seconds=BEAT_UPDATE_SEARCH_SEC),
+        "options": {"expires": BEAT_UPDATE_SEARCH_EXPIRE_AFTER_SEC},
+    },
+    "expire-orders": {
+        "task": "saleor.order.tasks.expire_orders_task",
+        "schedule": BEAT_EXPIRE_ORDERS_AFTER_TIMEDELTA,
+    },
+    "remove-apps-marked-as-removed": {
+        "task": "saleor.app.tasks.remove_apps_task",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "release-funds-for-abandoned-checkouts": {
+        "task": "saleor.payment.tasks.transaction_release_funds_for_checkout_task",
+        "schedule": timedelta(minutes=10),
+    },
+    "recalculate-promotion-rules": {
+        "task": (
+            "saleor.product.tasks"
+            ".update_variant_relations_for_active_promotion_rules_task"
+        ),
+        "schedule": timedelta(seconds=BEAT_PRICE_RECALCULATION_SCHEDULE),
+        "options": {"expires": BEAT_PRICE_RECALCULATION_SCHEDULE_EXPIRE_AFTER_SEC},
+    },
+    "recalculate-discounted-price-for-products": {
+        "task": "saleor.product.tasks.recalculate_discounted_price_for_products_task",
+        "schedule": timedelta(seconds=BEAT_PRICE_RECALCULATION_SCHEDULE),
+        "options": {"expires": BEAT_PRICE_RECALCULATION_SCHEDULE_EXPIRE_AFTER_SEC},
     },
 }
 
@@ -584,6 +665,15 @@ CELERY_BEAT_MAX_LOOP_INTERVAL = 300  # 5 minutes
 EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
     seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_PERIOD", "14 days"))
 )
+EVENT_PAYLOAD_DELETE_TASK_TIME_LIMIT = timedelta(
+    seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_TASK_TIME_LIMIT", "1 hour"))
+)
+# Time between marking app "to remove" and removing the app from the database.
+# App is not visible for the user after removing, but it still exists in the database.
+# Saleor needs time to process sending `APP_DELETED` webhook and possible retrying,
+# so we need to wait for some time before removing the App from the database.
+DELETE_APP_TTL = timedelta(seconds=parse(os.environ.get("DELETE_APP_TTL", "1 day")))
+
 
 # Observability settings
 OBSERVABILITY_BROKER_URL = os.environ.get("OBSERVABILITY_BROKER_URL")
@@ -620,7 +710,7 @@ if OBSERVABILITY_ACTIVE:
 
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
-REAL_IP_ENVIRON = os.environ.get("REAL_IP_ENVIRON", "REMOTE_ADDR")
+REAL_IP_ENVIRON = get_list(os.environ.get("REAL_IP_ENVIRON", "REMOTE_ADDR"))
 
 # Slugs for menus precreated in Django migrations
 DEFAULT_MENUS = {"top_menu_name": "navbar", "bottom_menu_name": "footer"}
@@ -635,7 +725,7 @@ POPULATE_DEFAULTS = get_bool_from_env("POPULATE_DEFAULTS", True)
 
 
 #  Sentry
-sentry_sdk.utils.MAX_STRING_LENGTH = 4096
+sentry_sdk.utils.MAX_STRING_LENGTH = 4096  # type: ignore[attr-defined]
 SENTRY_DSN = os.environ.get("SENTRY_DSN")
 SENTRY_OPTS = {"integrations": [CeleryIntegration(), DjangoIntegration()]}
 
@@ -651,10 +741,8 @@ def SENTRY_INIT(dsn: str, sentry_opts: dict):
     ignore_logger("graphql.execution.executor")
 
 
-GRAPHENE = {
-    "RELAY_CONNECTION_ENFORCE_FIRST_OR_LAST": True,
-    "RELAY_CONNECTION_MAX_LIMIT": 100,
-}
+GRAPHQL_PAGINATION_LIMIT = 100
+GRAPHQL_MIDDLEWARE: list[str] = []
 
 # Set GRAPHQL_QUERY_MAX_COMPLEXITY=0 in env to disable (not recommended)
 GRAPHQL_QUERY_MAX_COMPLEXITY = int(
@@ -669,7 +757,6 @@ FEDERATED_QUERY_MAX_ENTITIES = int(os.environ.get("FEDERATED_QUERY_MAX_ENTITIES"
 
 BUILTIN_PLUGINS = [
     "saleor.plugins.avatax.plugin.AvataxPlugin",
-    "saleor.plugins.vatlayer.plugin.VatlayerPlugin",
     "saleor.plugins.webhook.plugin.WebhookPlugin",
     "saleor.payment.gateways.dummy.plugin.DummyGatewayPlugin",
     "saleor.payment.gateways.dummy_credit_card.plugin.DummyCreditCardGatewayPlugin",
@@ -691,7 +778,7 @@ BUILTIN_PLUGINS = [
 EXTERNAL_PLUGINS = []
 installed_plugins = pkg_resources.iter_entry_points("saleor.plugins")
 for entry_point in installed_plugins:
-    plugin_path = "{}.{}".format(entry_point.module_name, entry_point.attrs[0])
+    plugin_path = f"{entry_point.module_name}.{entry_point.attrs[0]}"
     if plugin_path not in BUILTIN_PLUGINS and plugin_path not in EXTERNAL_PLUGINS:
         if entry_point.name not in INSTALLED_APPS:
             INSTALLED_APPS.append(entry_point.name)
@@ -699,20 +786,21 @@ for entry_point in installed_plugins:
 
 PLUGINS = BUILTIN_PLUGINS + EXTERNAL_PLUGINS
 
-if (
-    not DEBUG
-    and ENABLE_ACCOUNT_CONFIRMATION_BY_EMAIL
-    and ALLOWED_CLIENT_HOSTS == get_list(_DEFAULT_CLIENT_HOSTS)
-):
-    raise ImproperlyConfigured(
-        "Make sure you've added storefront address to ALLOWED_CLIENT_HOSTS "
-        "if ENABLE_ACCOUNT_CONFIRMATION_BY_EMAIL is enabled."
-    )
+# When `True`, HTTP requests made from arbitrary URLs will be rejected (e.g., webhooks).
+# if they try to access private IP address ranges, and loopback ranges (unless
+# `HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS=False`).
+HTTP_IP_FILTER_ENABLED: bool = get_bool_from_env("HTTP_IP_FILTER_ENABLED", True)
 
-# Timeouts for webhook requests. Sync webhooks (eg. payment webhook) need more time
-# for getting response from the server.
-WEBHOOK_TIMEOUT = 10
-WEBHOOK_SYNC_TIMEOUT = 20
+# When `False` it rejects loopback IPs during external calls.
+# Refer to `HTTP_IP_FILTER_ENABLED` for more details.
+HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS: bool = get_bool_from_env(
+    "HTTP_IP_FILTER_ALLOW_LOOPBACK_IPS", False
+)
+
+# Since we split checkout complete logic into two separate transactions, in order to
+# mimic stock lock, we apply short reservation for the stocks. The value represents
+# time of the reservation in seconds.
+RESERVE_DURATION = 45
 
 # Initialize a simple and basic Jaeger Tracing integration
 # for open-tracing if enabled.
@@ -721,7 +809,8 @@ WEBHOOK_SYNC_TIMEOUT = 20
 #
 # If running locally, set:
 #   JAEGER_AGENT_HOST=localhost
-if "JAEGER_AGENT_HOST" in os.environ:
+JAEGER_HOST = os.environ.get("JAEGER_AGENT_HOST")
+if JAEGER_HOST:
     jaeger_client.Config(
         config={
             "sampler": {"type": "const", "param": 1},
@@ -729,7 +818,7 @@ if "JAEGER_AGENT_HOST" in os.environ:
                 "reporting_port": os.environ.get(
                     "JAEGER_AGENT_PORT", jaeger_client.config.DEFAULT_REPORTING_PORT
                 ),
-                "reporting_host": os.environ.get("JAEGER_AGENT_HOST"),
+                "reporting_host": JAEGER_HOST,
             },
             "logging": get_bool_from_env("JAEGER_LOGGING", False),
         },
@@ -761,11 +850,23 @@ CHECKOUT_PRICES_TTL = timedelta(
     seconds=parse(os.environ.get("CHECKOUT_PRICES_TTL", "1 hour"))
 )
 
+CHECKOUT_TTL_BEFORE_RELEASING_FUNDS = timedelta(
+    seconds=parse(os.environ.get("CHECKOUT_TTL_BEFORE_RELEASING_FUNDS", "6 hours"))
+)
+CHECKOUT_BATCH_FOR_RELEASING_FUNDS = os.environ.get(
+    "CHECKOUT_BATCH_FOR_RELEASING_FUNDS", 30
+)
+TRANSACTION_BATCH_FOR_RELEASING_FUNDS = os.environ.get(
+    "TRANSACTION_BATCH_FOR_RELEASING_FUNDS", 60
+)
+
+
 # The maximum SearchVector expression count allowed per index SQL statement
 # If the count is exceeded, the expression list will be truncated
 INDEX_MAXIMUM_EXPR_COUNT = 4000
 
 # Maximum related objects that can be indexed in an order
+SEARCH_ORDERS_MAX_INDEXED_TRANSACTIONS = 20
 SEARCH_ORDERS_MAX_INDEXED_PAYMENTS = 20
 SEARCH_ORDERS_MAX_INDEXED_DISCOUNTS = 20
 SEARCH_ORDERS_MAX_INDEXED_LINES = 100
@@ -781,6 +882,63 @@ PRODUCT_MAX_INDEXED_VARIANTS = 1000
 
 executor.SubscriberExecutionContext = PatchedSubscriberExecutionContext  # type: ignore
 
+patch_executor()
+
+# Optional queue names for Celery tasks.
+# Set None to route to the default queue, or a string value to use a separate one
+#
+# Queue name for update search vector
 UPDATE_SEARCH_VECTOR_INDEX_QUEUE_NAME = os.environ.get(
     "UPDATE_SEARCH_VECTOR_INDEX_QUEUE_NAME", None
 )
+# Queue name for "async webhook" events
+WEBHOOK_CELERY_QUEUE_NAME = os.environ.get("WEBHOOK_CELERY_QUEUE_NAME", None)
+
+# Queue name for execution of collection product_updated events
+COLLECTION_PRODUCT_UPDATED_QUEUE_NAME = os.environ.get(
+    "COLLECTION_PRODUCT_UPDATED_QUEUE_NAME", None
+)
+
+# Lock time for request password reset mutation per user (seconds)
+RESET_PASSWORD_LOCK_TIME = parse(
+    os.environ.get("RESET_PASSWORD_LOCK_TIME", "15 minutes")
+)
+
+# Lock time for request confirmation email mutation per user
+CONFIRMATION_EMAIL_LOCK_TIME = parse(
+    os.environ.get("CONFIRMATION_EMAIL_LOCK_TIME", "15 minutes")
+)
+
+# Time threshold to update user last_login when performing requests with OAUTH token.
+OAUTH_UPDATE_LAST_LOGIN_THRESHOLD = parse(
+    os.environ.get("OAUTH_UPDATE_LAST_LOGIN_THRESHOLD", "15 minutes")
+)
+
+
+# Default timeout (sec) for establishing a connection when performing external requests.
+REQUESTS_CONN_EST_TIMEOUT = 2
+
+# Default timeout for external requests.
+COMMON_REQUESTS_TIMEOUT = (REQUESTS_CONN_EST_TIMEOUT, 18)
+
+WEBHOOK_TIMEOUT = (REQUESTS_CONN_EST_TIMEOUT, 18)
+WEBHOOK_SYNC_TIMEOUT = (REQUESTS_CONN_EST_TIMEOUT, 18)
+
+# The max number of rules with order_predicate defined
+ORDER_RULES_LIMIT = os.environ.get("ORDER_RULES_LIMIT", 100)
+
+# The max number of gits assigned to promotion rule
+GIFTS_LIMIT_PER_RULE = os.environ.get("GIFTS_LIMIT_PER_RULE", 500)
+
+# Whether to enable the comparison of pre-save and post-save webhook payloads in
+# mutations, in order to limit sending webhooks where the payload has not changed as
+# a result of the mutation. Note: this works only for subscriptions webhooks; legacy
+# payloads are not supported.
+ENABLE_LIMITING_WEBHOOKS_FOR_IDENTICAL_PAYLOADS = get_bool_from_env(
+    "ENABLE_LIMITING_WEBHOOKS_FOR_IDENTICAL_PAYLOADS", False
+)
+
+
+# Transaction items limit for PaymentGatewayInitialize / TransactionInitialize.
+# That setting limits the allowed number of transaction items for single entity.
+TRANSACTION_ITEMS_LIMIT = 100

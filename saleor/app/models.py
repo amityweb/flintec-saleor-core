@@ -1,19 +1,24 @@
+<<<<<<< HEAD
 from typing import Collection, Set, Union
+=======
+from collections.abc import Iterable
+from typing import Union, cast
+from uuid import uuid4
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 
 from django.contrib.auth.hashers import make_password
-from django.contrib.auth.models import Permission
 from django.db import models
+from django.utils.text import Truncator
 from oauthlib.common import generate_token
 
-from saleor.core.permissions.enums import BasePermissionEnum
-
 from ..core.models import Job, ModelWithMetadata
-from ..core.permissions import AppPermission
+from ..permission.enums import AppPermission, BasePermissionEnum
+from ..permission.models import Permission
 from ..webhook.event_types import WebhookEventAsyncType, WebhookEventSyncType
 from .types import AppExtensionMount, AppExtensionTarget, AppType
 
 
-class AppQueryset(models.QuerySet):
+class AppQueryset(models.QuerySet["App"]):
     def for_event_type(self, event_type: str):
         permissions = {}
         required_permission = WebhookEventAsyncType.PERMISSIONS.get(
@@ -31,14 +36,19 @@ class AppQueryset(models.QuerySet):
         )
 
 
+AppManager = models.Manager.from_queryset(AppQueryset)
+
+
 class App(ModelWithMetadata):
+    uuid = models.UUIDField(unique=True, default=uuid4)
     name = models.CharField(max_length=60)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    removed_at = models.DateTimeField(blank=True, null=True)
     type = models.CharField(
         choices=AppType.CHOICES, default=AppType.LOCAL, max_length=60
     )
-    identifier = models.CharField(blank=True, null=True, max_length=256)
+    identifier = models.CharField(max_length=256, blank=True)
     permissions = models.ManyToManyField(
         Permission,
         blank=True,
@@ -55,8 +65,13 @@ class App(ModelWithMetadata):
     app_url = models.URLField(blank=True, null=True)
     manifest_url = models.URLField(blank=True, null=True)
     version = models.CharField(max_length=60, blank=True, null=True)
-
-    objects = models.Manager.from_queryset(AppQueryset)()
+    audience = models.CharField(blank=True, null=True, max_length=256)
+    is_installed = models.BooleanField(default=True)
+    author = models.CharField(blank=True, null=True, max_length=60)
+    brand_logo_default = models.ImageField(
+        upload_to="app-brand-data", blank=True, null=True
+    )
+    objects = AppManager()
 
     class Meta(ModelWithMetadata.Meta):
         ordering = ("name", "pk")
@@ -74,7 +89,7 @@ class App(ModelWithMetadata):
     def __str__(self):
         return self.name
 
-    def get_permissions(self) -> Set[str]:
+    def get_permissions(self) -> set[str]:
         """Return the permissions of the app."""
         if not self.is_active:
             return set()
@@ -85,7 +100,7 @@ class App(ModelWithMetadata):
             setattr(self, perm_cache_name, {f"{ct}.{name}" for ct, name in perms})
         return getattr(self, perm_cache_name)
 
-    def has_perms(self, perm_list: Collection[Union[BasePermissionEnum, str]]) -> bool:
+    def has_perms(self, perm_list: Iterable[Union[BasePermissionEnum, str]]) -> bool:
         """Return True if the app has each of the specified permissions."""
         if not self.is_active:
             return False
@@ -107,7 +122,7 @@ class App(ModelWithMetadata):
         return perm_value in self.get_permissions()
 
 
-class AppTokenManager(models.Manager):
+class AppTokenManager(models.Manager["AppToken"]):
     def create(self, app, name="", auth_token=None, **extra_fields):
         """Create an app token with the given name."""
         if not auth_token:
@@ -117,6 +132,14 @@ class AppTokenManager(models.Manager):
         app_token.save()
         return app_token, auth_token
 
+<<<<<<< HEAD
+=======
+    def create_with_token(self, *args, **kwargs) -> tuple["AppToken", str]:
+        # As `create` is waiting to be fixed, I'm using this proper method from future
+        # to get both AppToken and auth_token.
+        return self.create(*args, **kwargs)
+
+>>>>>>> fa9ea3af1251eaa792bebc0aabcf03f49b31a7e9
 
 class AppToken(models.Model):
     app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="tokens")
@@ -149,6 +172,7 @@ class AppExtension(models.Model):
 
 
 class AppInstallation(Job):
+    uuid = models.UUIDField(unique=True, default=uuid4)
     app_name = models.CharField(max_length=60)
     manifest_url = models.URLField()
     permissions = models.ManyToManyField(
@@ -158,3 +182,15 @@ class AppInstallation(Job):
         related_name="app_installation_set",
         related_query_name="app_installation",
     )
+    brand_logo_default = models.ImageField(
+        upload_to="app-installation-brand-data", blank=True, null=True
+    )
+
+    def set_message(self, message: str, truncate=True):
+        if truncate:
+            message_field = cast(models.Field, self._meta.get_field("message"))
+            max_length = message_field.max_length
+            if max_length is None:
+                raise ValueError("Cannot truncate message without max_length")
+            message = Truncator(message).chars(max_length)
+        self.message = message
